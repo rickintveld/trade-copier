@@ -6,8 +6,8 @@ slaves:
   - name: "FN-100k"
     address: "192.168.1.101:5050"
     local_bind: "0.0.0.0:6002"
-    multiplier: 1.0
+    multiplier: 2.0
   - name: "FN-200k"
     address: "192.168.1.101:5050"
     local_bind: "0.0.0.0:6003"
-    multiplier: 2.0
+    multiplier: 1.0
