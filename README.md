@@ -94,7 +94,7 @@ while let Ok(trade) = rx.recv().await {
 ## 7. UDP ACK + Retry Logic
 Worker → Slave:
 ```json
-{"cmd":"open","symbol":"EURUSD","lots":0.30,"type":"buy","id":123456}
+{"id":123456,"symbol":"EURUSD","type":"buy","lots":0.30,"price":1.08500,"sl":1.08000,"tp":1.09000,"cmd":"open"}
 ```
 
 Slave → Worker ACK:
@@ -104,17 +104,51 @@ Slave → Worker ACK:
 
 ## 8. Master Signal Sender EA (MT5)
 ```mql5
-string msg = "{ \"symbol\": \"" + symbol + "\", \"type\": \"buy\", \"lots\": " + DoubleToString(lots,2) + " }";
-SockSend(masterIP, masterPort, msg);
+// Build JSON message
+string json = "{";
+json += "\"id\":" + IntegerToString(trade_id) + ",";
+json += "\"symbol\":\"" + symbol + "\",";
+json += "\"type\":\"" + trade_type + "\",";
+json += "\"lots\":" + DoubleToString(lots, 2) + ",";
+json += "\"price\":" + DoubleToString(price, 5);
+if(sl > 0) json += ",\"sl\":" + DoubleToString(sl, 5);
+if(tp > 0) json += ",\"tp\":" + DoubleToString(tp, 5);
+json += ",\"cmd\":\"open\"}";
+
+// Send via UDP socket
+uchar data[];
+StringToCharArray(json, data, 0, StringLen(json));
+int sent = SocketSend(socketHandle, data, ArraySize(data));
 ```
 
 ## 9. Slave Receiver EA
 ```mql5
-int OnUDPPacket(string data)
+void OnTick()
 {
-   Trade t = ParseTrade(data);
-   OpenTrade(t);
-   SendACK(t.id);
+   CheckIncomingTrades();
+}
+
+void CheckIncomingTrades()
+{
+   uint len = SocketIsReadable(socketHandle);
+   if(len == 0) return;
+   
+   uchar buffer[];
+   ArrayResize(buffer, len);
+   int received = SocketRead(socketHandle, buffer, len, 0);
+   
+   if(received > 0)
+   {
+      string data = CharArrayToString(buffer, 0, received);
+      ParseAndExecuteTrade(data);
+   }
+}
+
+bool ParseAndExecuteTrade(string json_data)
+{
+   // Extract fields: id, symbol, type, lots, price, sl, tp, cmd
+   // Execute: trade.Buy() or trade.Sell()
+   // Send ACK: SendAck(trade_id)
 }
 ```
 
