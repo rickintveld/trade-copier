@@ -133,7 +133,7 @@ sudo journalctl -u trade-copier -f
 
 ## 📚 Full Documentation
 
-- [README.md](README.md) - Architecture and design overview
+- [README.md](../README.md) - Architecture and design overview
 - [INSTALLATION.md](INSTALLATION.md) - Detailed setup instructions
 - `config/slaves.yaml` - Configuration examples
 
