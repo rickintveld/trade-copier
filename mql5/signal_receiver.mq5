@@ -19,11 +19,26 @@ input int Slippage = 10;               // Slippage in points
 int socketHandle = INVALID_SOCKET;
 CTrade trade;
 
+// Position tracking: maps trade_id to position ticket
+ulong g_trade_ids[];
+ulong g_position_tickets[];
+int g_tracking_count = 0;
+
+// Helper functions
+int FindTradeIdIndex(ulong trade_id);
+void AddPositionMapping(ulong trade_id, ulong ticket);
+void RemovePositionMapping(ulong trade_id);
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   // Initialize tracking arrays
+   ArrayResize(g_trade_ids, 0);
+   ArrayResize(g_position_tickets, 0);
+   g_tracking_count = 0;
+   
    Print("[RECEIVER] Trade Copier Slave EA started");
    Print("[RECEIVER] Connecting to worker at ", WorkerIP, ":", WorkerPort);
    
@@ -129,7 +144,7 @@ bool ParseAndExecuteTrade(string json_data)
    double price = 0.0;
    double sl = 0.0;
    double tp = 0.0;
-   string cmd = "";
+   string cmd = "open";  // Default to open
    
    // Extract fields from JSON
    if(!ExtractJSONField(json_data, "id", trade_id)) return false;
@@ -142,28 +157,103 @@ bool ParseAndExecuteTrade(string json_data)
    ExtractJSONField(json_data, "tp", tp);
    ExtractJSONField(json_data, "cmd", cmd);
    
-   Print("[RECEIVER] Parsed trade: ID=", trade_id, " Symbol=", symbol, " Type=", trade_type, " Lots=", lots);
+   Print("[RECEIVER] Parsed trade: ID=", trade_id, " Symbol=", symbol, " Cmd=", cmd);
    
-   // Execute trade
+   // Handle different commands
    bool success = false;
    
-   if(trade_type == "buy")
+   if(cmd == "open")
    {
-      success = trade.Buy(lots, symbol, 0, sl, tp, "CopiedTrade");
+      // Execute new position
+      if(trade_type == "buy")
+      {
+         success = trade.Buy(lots, symbol, 0, sl, tp, "CopiedTrade");
+      }
+      else if(trade_type == "sell")
+      {
+         success = trade.Sell(lots, symbol, 0, sl, tp, "CopiedTrade");
+      }
+      
+      if(success)
+      {
+         ulong ticket = trade.ResultOrder();
+         // Get actual position ticket (not order ticket)
+         if(PositionSelectByTicket(ticket))
+            ticket = PositionGetInteger(POSITION_TICKET);
+         else if(PositionSelect(symbol))
+            ticket = PositionGetInteger(POSITION_TICKET);
+            
+         AddPositionMapping(trade_id, ticket);
+         Print("[RECEIVER] Position opened: ticket=", ticket, " trade_id=", trade_id);
+         return true;
+      }
+      else
+      {
+         Print("[RECEIVER] Failed to open position: ", trade.ResultRetcodeDescription());
+         return false;
+      }
    }
-   else if(trade_type == "sell")
+   else if(cmd == "close")
    {
-      success = trade.Sell(lots, symbol, 0, sl, tp, "CopiedTrade");
+      // Close existing position
+      int idx = FindTradeIdIndex(trade_id);
+      if(idx < 0)
+      {
+         Print("[RECEIVER] WARNING: Cannot close - trade_id ", trade_id, " not found in tracking");
+         return false;
+      }
+      
+      ulong ticket = g_position_tickets[idx];
+      success = trade.PositionClose(ticket);
+      
+      if(success)
+      {
+         Print("[RECEIVER] Position closed: ticket=", ticket, " trade_id=", trade_id);
+         RemovePositionMapping(trade_id);
+         return true;
+      }
+      else
+      {
+         Print("[RECEIVER] Failed to close position: ", trade.ResultRetcodeDescription());
+         return false;
+      }
    }
-   
-   if(success)
+   else if(cmd == "modify")
    {
-      Print("[RECEIVER] Trade executed: ", trade.ResultOrder());
-      return true;
+      // Modify existing position SL/TP
+      int idx = FindTradeIdIndex(trade_id);
+      if(idx < 0)
+      {
+         Print("[RECEIVER] WARNING: Cannot modify - trade_id ", trade_id, " not found in tracking");
+         return false;
+      }
+      
+      ulong ticket = g_position_tickets[idx];
+      
+      // Get current position symbol for PositionModify
+      if(!PositionSelectByTicket(ticket))
+      {
+         Print("[RECEIVER] WARNING: Position ticket ", ticket, " no longer exists");
+         RemovePositionMapping(trade_id);
+         return false;
+      }
+      
+      success = trade.PositionModify(ticket, sl, tp);
+      
+      if(success)
+      {
+         Print("[RECEIVER] Position modified: ticket=", ticket, " SL=", sl, " TP=", tp);
+         return true;
+      }
+      else
+      {
+         Print("[RECEIVER] Failed to modify position: ", trade.ResultRetcodeDescription());
+         return false;
+      }
    }
    else
    {
-      Print("[RECEIVER] Trade failed: ", trade.ResultRetcodeDescription());
+      Print("[RECEIVER] ERROR: Unknown command: ", cmd);
       return false;
    }
 }
@@ -267,4 +357,57 @@ bool ExtractJSONField(string json, string field_name, string &value)
    value = StringTrimRight(value_str);
    
    return StringLen(value) > 0;
+}
+
+//+------------------------------------------------------------------+
+//| Position tracking helper functions                               |
+//+------------------------------------------------------------------+
+int FindTradeIdIndex(ulong trade_id)
+{
+   for(int i = 0; i < g_tracking_count; i++)
+   {
+      if(g_trade_ids[i] == trade_id)
+         return i;
+   }
+   return -1;
+}
+
+void AddPositionMapping(ulong trade_id, ulong ticket)
+{
+   // Check if already exists (shouldn't happen, but be safe)
+   int idx = FindTradeIdIndex(trade_id);
+   if(idx >= 0)
+   {
+      // Update existing mapping
+      g_position_tickets[idx] = ticket;
+      return;
+   }
+   
+   g_tracking_count++;
+   ArrayResize(g_trade_ids, g_tracking_count);
+   ArrayResize(g_position_tickets, g_tracking_count);
+   
+   g_trade_ids[g_tracking_count - 1] = trade_id;
+   g_position_tickets[g_tracking_count - 1] = ticket;
+   
+   Print("[RECEIVER] Mapped trade_id=", trade_id, " to ticket=", ticket);
+}
+
+void RemovePositionMapping(ulong trade_id)
+{
+   int idx = FindTradeIdIndex(trade_id);
+   if(idx < 0) return;
+   
+   // Shift arrays to remove element
+   for(int i = idx; i < g_tracking_count - 1; i++)
+   {
+      g_trade_ids[i] = g_trade_ids[i + 1];
+      g_position_tickets[i] = g_position_tickets[i + 1];
+   }
+   
+   g_tracking_count--;
+   ArrayResize(g_trade_ids, g_tracking_count);
+   ArrayResize(g_position_tickets, g_tracking_count);
+   
+   Print("[RECEIVER] Removed mapping for trade_id=", trade_id);
 }

@@ -13,8 +13,12 @@ pub struct Trade {
     pub sl: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tp: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cmd: Option<String>, // "open", "close", "modify"
+    #[serde(default = "default_cmd")]
+    pub cmd: String, // "open", "close", "modify"
+}
+
+fn default_cmd() -> String {
+    "open".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -144,7 +144,7 @@ sudo journalctl -u trade-copier -f
 - **TCP connections** - Reliable, persistent connections between components
 - **Network security** - Use VPN/WireGuard in production
 - **Lot size rounding** - Lots rounded to 2 decimals (0.01 minimum)
-- **No position close handling** - Currently only copies new positions
+- **Full position management** - Copies open, close, and SL/TP modifications
 
 ---
 
@@ -156,3 +156,34 @@ sudo journalctl -u trade-copier -f
 - Check MT5 "Experts" tab for EA logs
 - Watch Rust terminal for real-time trade flow
 - Press Ctrl+C to gracefully stop the backend
+
+---
+
+## 🎯 Position Management Features
+
+The trade copier now supports **full position lifecycle management**:
+
+### What Gets Copied
+
+1. **Opening Positions** - When you open a trade on master, it opens on all slaves with their respective multipliers
+2. **Closing Positions** - Close any specific position on master, and that exact position closes on all slaves
+3. **Modifying SL/TP** - Adjust stop loss or take profit on master, changes replicate to slaves
+
+### Multiple Positions Support
+
+You can open multiple positions on the same symbol:
+- Each position is tracked individually with a unique ID
+- Close or modify specific positions without affecting others
+- Master positions are mapped to corresponding slave positions
+
+### How It Works
+
+**Master EA** tracks every position with a unique trade ID and monitors:
+- Position opens (sends `cmd: "open"`)
+- Position closes (sends `cmd: "close"`)
+- SL/TP changes (sends `cmd: "modify"`)
+
+**Slave EA** maintains a mapping of trade IDs to position tickets:
+- Executes opens and stores the mapping
+- Uses mapping to close/modify the correct position
+- Handles errors gracefully if position doesn't exist

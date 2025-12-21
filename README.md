@@ -4,10 +4,17 @@
 This project implements a **high-performance MetaTrader 5 → Rust → MetaTrader 5 trade copier**, designed for extremely low latency and unlimited scalability.
 
 ### Core workflow:
-- **Master EA** sends trade signals via **TCP**.
-- **Rust Router** receives signals and broadcasts them to workers using a **tokio broadcast channel**.
-- **Rust Workers** act as TCP servers and send trades to connected slave EAs.
-- **Slave EA** connects to worker, receives signals and executes trades.
+- **Master EA** sends trade signals via **TCP** (open, close, modify)
+- **Rust Router** receives signals and broadcasts them to workers using a **tokio broadcast channel**
+- **Rust Workers** act as TCP servers and send trades to connected slave EAs
+- **Slave EA** connects to worker, receives signals and executes trades with full position tracking
+
+### Features:
+- ✅ **Open positions** - Copy new trades with lot multipliers
+- ✅ **Close positions** - Close specific positions across all slaves
+- ✅ **Modify SL/TP** - Update stop loss and take profit in real-time
+- ✅ **Multiple positions** - Handle multiple positions on the same symbol
+- ✅ **Position tracking** - Maintain mapping between master and slave positions
 
 ### Architecture Diagram
 
@@ -91,8 +98,20 @@ while let Ok(trade) = rx.recv().await {
 
 ## 7. TCP Communication & Message Framing
 Worker → Slave (newline-delimited JSON):
+
+**Open position:**
 ```json
 {"id":123456,"symbol":"EURUSD","type":"buy","lots":0.30,"price":1.08500,"sl":1.08000,"tp":1.09000,"cmd":"open"}
+```
+
+**Close position:**
+```json
+{"id":123456,"symbol":"EURUSD","type":"buy","lots":0.30,"cmd":"close"}
+```
+
+**Modify SL/TP:**
+```json
+{"id":123456,"symbol":"EURUSD","type":"buy","lots":0.30,"sl":1.07500,"tp":1.09500,"cmd":"modify"}
 ```
 
 TCP provides built-in reliability, so no manual ACK/retry logic is needed.
