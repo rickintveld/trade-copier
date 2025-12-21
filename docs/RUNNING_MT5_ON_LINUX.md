@@ -247,9 +247,11 @@ Allow Wine through firewall:
 ```bash
 # UFW (Ubuntu)
 sudo ufw allow from any to any port 443 proto tcp
+sudo ufw allow 5000:5100/tcp  # For trade copier (router + workers)
 
 # Firewalld (Fedora)
 sudo firewall-cmd --permanent --add-port=443/tcp
+sudo firewall-cmd --permanent --add-port=5000-5100/tcp
 sudo firewall-cmd --reload
 ```
 

@@ -10,9 +10,9 @@
 #include <Trade\Trade.mqh>
 
 #define INVALID_SOCKET -1              // Invalid socket handle
-#define SOCKET_UDP 1                   // UDP socket type
 
-input int ListenPort = 5050;           // UDP Listen Port
+input string WorkerIP = "127.0.0.1";   // Rust Worker IP
+input int WorkerPort = 5050;           // Rust Worker Port
 input int MagicNumber = 999888;        // Magic Number for trades
 input int Slippage = 10;               // Slippage in points
 
@@ -25,23 +25,20 @@ CTrade trade;
 int OnInit()
 {
    Print("[RECEIVER] Trade Copier Slave EA started");
-   Print("[RECEIVER] Listening on port ", ListenPort);
+   Print("[RECEIVER] Connecting to worker at ", WorkerIP, ":", WorkerPort);
    
-   // Initialize UDP socket
-   // Note: MQL5 doesn't support server-side UDP listening with SocketBind
-   // For receiving UDP packets, you'll need to use a different approach
-   // such as connecting to a local address or using TCP sockets instead
-   socketHandle = SocketCreate(SOCKET_UDP);
+   // Initialize TCP socket
+   socketHandle = SocketCreate();
    if(socketHandle == INVALID_SOCKET)
    {
       Print("[RECEIVER] ERROR: Failed to create socket");
       return INIT_FAILED;
    }
    
-   // Connect to localhost to receive on specific port
-   if(!SocketConnect(socketHandle, "127.0.0.1", ListenPort, 1000))
+   // Connect to Rust worker's TCP server
+   if(!SocketConnect(socketHandle, WorkerIP, WorkerPort, 1000))
    {
-      Print("[RECEIVER] ERROR: Failed to connect to port ", ListenPort);
+      Print("[RECEIVER] ERROR: Failed to connect to worker at ", WorkerIP, ":", WorkerPort);
       SocketClose(socketHandle);
       return INIT_FAILED;
    }
@@ -51,7 +48,7 @@ int OnInit()
    trade.SetDeviationInPoints(Slippage);
    trade.SetTypeFilling(ORDER_FILLING_FOK);
    
-   Print("[RECEIVER] Socket bound successfully");
+   Print("[RECEIVER] Connected to worker successfully (TCP)");
    return INIT_SUCCEEDED;
 }
 
@@ -71,7 +68,7 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Check for incoming UDP packets
+   // Check for incoming TCP messages
    CheckIncomingTrades();
 }
 
@@ -97,11 +94,20 @@ void CheckIncomingTrades()
       string data = CharArrayToString(buffer, 0, received);
       Print("[RECEIVER] Received packet (", received, " bytes): ", data);
       
-      // Parse and execute trade
-      if(ParseAndExecuteTrade(data))
-         Print("[RECEIVER] Trade executed successfully");
-      else
-         Print("[RECEIVER] Failed to execute trade");
+      // Parse and execute trade (may contain multiple newline-delimited messages)
+      string messages[];
+      int count = StringSplit(data, '\n', messages);
+      
+      for(int i = 0; i < count; i++)
+      {
+         if(StringLen(messages[i]) > 0)
+         {
+            if(ParseAndExecuteTrade(messages[i]))
+               Print("[RECEIVER] Trade executed successfully");
+            else
+               Print("[RECEIVER] Failed to execute trade");
+         }
+      }
    }
 }
 
@@ -148,9 +154,6 @@ bool ParseAndExecuteTrade(string json_data)
    if(success)
    {
       Print("[RECEIVER] Trade executed: ", trade.ResultOrder());
-      
-      // Send ACK
-      SendAck(trade_id);
       return true;
    }
    else
@@ -158,25 +161,6 @@ bool ParseAndExecuteTrade(string json_data)
       Print("[RECEIVER] Trade failed: ", trade.ResultRetcodeDescription());
       return false;
    }
-}
-
-//+------------------------------------------------------------------+
-//| Send ACK response                                                |
-//+------------------------------------------------------------------+
-void SendAck(ulong trade_id)
-{
-   string ack_json = "{\\\"ack\\\":" + IntegerToString(trade_id) + "}";
-   
-   // Convert to char array
-   uchar data[];
-   StringToCharArray(ack_json, data, 0, StringLen(ack_json));
-   
-   int sent = SocketSend(socketHandle, data, ArraySize(data));
-   
-   if(sent > 0)
-      Print("[RECEIVER] ACK sent for trade ", trade_id, " (", sent, " bytes)");
-   else
-      Print("[RECEIVER] ERROR: Failed to send ACK, error: ", GetLastError());
 }
 
 //+------------------------------------------------------------------+

@@ -1,22 +1,48 @@
 use anyhow::Result;
-use tokio::net::UdpSocket;
+use tokio::net::TcpListener;
 use tokio::sync::broadcast;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use crate::types::Trade;
 
 const ROUTER_PORT: u16 = 5000;
-const BUFFER_SIZE: usize = 4096;
 
 pub async fn run_router(tx: broadcast::Sender<Trade>) -> Result<()> {
-    let socket = UdpSocket::bind(format!("0.0.0.0:{}", ROUTER_PORT)).await?;
-    println!("[ROUTER] Listening on port {}", ROUTER_PORT);
-
-    let mut buf = vec![0u8; BUFFER_SIZE];
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", ROUTER_PORT)).await?;
+    println!("[ROUTER] Listening on port {} (TCP)", ROUTER_PORT);
 
     loop {
-        let (len, addr) = socket.recv_from(&mut buf).await?;
-        let data = &buf[..len];
+        match listener.accept().await {
+            Ok((stream, addr)) => {
+                println!("[ROUTER] New connection from {}", addr);
+                let tx_clone = tx.clone();
+                
+                tokio::spawn(async move {
+                    if let Err(e) = handle_connection(stream, tx_clone, addr).await {
+                        eprintln!("[ROUTER] Connection error from {}: {}", addr, e);
+                    }
+                });
+            }
+            Err(e) => {
+                eprintln!("[ROUTER] Failed to accept connection: {}", e);
+            }
+        }
+    }
+}
 
-        match serde_json::from_slice::<Trade>(data) {
+async fn handle_connection(
+    stream: tokio::net::TcpStream,
+    tx: broadcast::Sender<Trade>,
+    addr: std::net::SocketAddr,
+) -> Result<()> {
+    let reader = BufReader::new(stream);
+    let mut lines = reader.lines();
+
+    while let Some(line) = lines.next_line().await? {
+        if line.is_empty() {
+            continue;
+        }
+
+        match serde_json::from_str::<Trade>(&line) {
             Ok(trade) => {
                 println!("[ROUTER] Received trade from {}: {:?}", addr, trade);
                 
@@ -35,4 +61,7 @@ pub async fn run_router(tx: broadcast::Sender<Trade>) -> Result<()> {
             }
         }
     }
+
+    println!("[ROUTER] Connection closed from {}", addr);
+    Ok(())
 }

@@ -31,24 +31,21 @@ Edit `config/slaves.yaml`:
 ```yaml
 slaves:
   - name: "Account01"
-    address: "192.168.1.101:5050"  # Slave MT5 IP and port
-    local_bind: "0.0.0.0:6001"      # Local port for this worker
+    address: "0.0.0.0:5051"         # Worker TCP server address
     multiplier: 1.0                 # Lot size multiplier
 
   - name: "Account02"
-    address: "192.168.1.102:5050"
-    local_bind: "0.0.0.0:6002"
+    address: "0.0.0.0:5052"
     multiplier: 0.5                 # Trade half the master lot size
 
   - name: "Account03"
-    address: "192.168.1.103:5050"
-    local_bind: "0.0.0.0:6003"
+    address: "0.0.0.0:5053"
     multiplier: 2.0                 # Trade double the master lot size
 ```
 
 **Important Notes:**
-- `address`: The IP and port where the slave MT5 EA is listening
-- `local_bind`: Each worker needs a unique local port
+- `address`: The TCP server address where this worker will listen for slave MT5 EA connections
+- Each worker needs a unique port
 - `multiplier`: Risk adjustment per slave (1.0 = same size, 0.5 = half, 2.0 = double)
 
 ### 3. Install MetaTrader 5 Expert Advisors
@@ -72,7 +69,8 @@ slaves:
 - `RouterPort`: Router listening port (default: 5000)
 
 **Slave EA Settings:**
-- `ListenPort`: Port to listen on (default: 5050)
+- `WorkerIP`: IP address of the worker to connect to (default: "127.0.0.1")
+- `WorkerPort`: Port of the worker to connect to (e.g., 5051, 5052, 5053)
 - `MagicNumber`: Unique identifier for trades (default: 999888)
 - `Slippage`: Maximum slippage in points (default: 10)
 
@@ -106,10 +104,10 @@ Expected output:
 ```
 🚀 Trade Copier Starting...
 📋 Loaded 1 slave(s) from config
-  - FN-200k @ 192.168.1.101:5050 (multiplier: 2x)
-[WORKER:FN-200k] Starting worker for 192.168.1.101:5050
-[WORKER:FN-200k] Bound to 0.0.0.0:6001
-[ROUTER] Listening on port 5000
+  - FN-200k @ 0.0.0.0:5051 (multiplier: 2x)
+[WORKER:FN-200k] Starting TCP server on 0.0.0.0:5051
+[WORKER:FN-200k] Listening on 0.0.0.0:5051 (TCP)
+[ROUTER] Listening on port 5000 (TCP)
 ✅ Trade Copier is running
 📡 Router listening on port 5000
 ⏳ Press Ctrl+C to stop
@@ -120,16 +118,16 @@ Expected output:
 **Master Terminal:**
 1. Open any chart (symbol doesn't matter)
 2. Drag `signal_sender.mq5` onto the chart
-3. Configure Router IP/Port if needed
+3. Configure Router IP/Port if needed (default: 127.0.0.1:5000)
 4. Click **OK**
 5. Verify in Experts tab: `[SENDER] Trade Copier Master EA started`
 
 **Slave Terminals:**
 1. Open any chart on each slave terminal
 2. Drag `signal_receiver.mq5` onto the chart
-3. Configure Listen Port if needed
+3. Configure Worker IP/Port to match your worker address (e.g., 127.0.0.1:5051)
 4. Click **OK**
-5. Verify in Experts tab: `[RECEIVER] Trade Copier Slave EA started`
+5. Verify in Experts tab: `[RECEIVER] Connected to worker at 127.0.0.1:5051`
 
 ### 3. Test the System
 
@@ -140,28 +138,27 @@ Expected output:
 
 Expected log flow:
 ```
+[ROUTER] New connection from 127.0.0.1:XXXXX
 [ROUTER] Received trade from 127.0.0.1:XXXXX: Trade { id: 123456, symbol: "EURUSD", ... }
 [ROUTER] Broadcasted to 1 workers
 [WORKER:FN-200k] Received trade: Trade { id: 123456, ... }
 [WORKER:FN-200k] Adjusted lots: 0.20 (multiplier: 2)
-[WORKER:FN-200k] Sending trade (attempt 1): {...}
-[WORKER:FN-200k] ACK received for trade 123456
+[WORKER:FN-200k] Sent trade: {...}
 ```
 
 ## Network Configuration
 
 ### Local Setup (Same Machine)
-- Master → Router: `127.0.0.1:5000`
-- Router → Slaves: `127.0.0.1:5050` (or different ports)
+- Master → Router: `127.0.0.1:5000` (TCP)
+- Slaves → Workers: `127.0.0.1:5051`, `127.0.0.1:5052`, etc. (TCP)
 
 ### Remote Setup (Different Machines)
-- Master → Router: `<ROUTER_IP>:5000`
-- Router → Slaves: `<SLAVE_IP>:5050`
+- Master → Router: `<ROUTER_IP>:5000` (TCP)
+- Slaves → Workers: `<WORKER_IP>:5051`, `<WORKER_IP>:5052`, etc. (TCP)
 
 **Firewall Rules:**
-- Allow UDP port 5000 (Router incoming)
-- Allow UDP port 5050 (Slaves incoming)
-- Allow UDP ports 6001-600X (Workers outgoing)
+- Allow TCP port 5000 (Router incoming - Master EA connections)
+- Allow TCP ports 5051-505X (Workers incoming - Slave EA connections)
 
 ## Production Deployment
 
@@ -207,7 +204,7 @@ sudo journalctl -u trade-copier -f
 - **Solution:** Port already in use. Stop other services or change ROUTER_PORT in `router.rs`
 
 **Problem:** "Failed to send trade signal"
-- **Solution:** Check network connectivity, firewall rules, and slave IP addresses
+- **Solution:** Check network connectivity, firewall rules, and verify slave EA is connected to worker
 
 ### MetaTrader Issues
 
@@ -218,32 +215,34 @@ sudo journalctl -u trade-copier -f
 - **Solution:** Restart MT5 with administrator privileges
 
 **Problem:** "Socket bind failed"
-- **Solution:** Port already in use. Change ListenPort in EA settings
+- **Solution:** Port already in use. Change worker address in config/slaves.yaml
 
 **Problem:** No trades copied
-- **Solution:** Check Master EA logs for "Trade signal sent successfully"
-- **Solution:** Check Rust logs for "Received trade from..."
-- **Solution:** Check Slave EA logs for "Received packet from..."
+- **Solution:** Check Master EA logs for "Connected to router" and "Trade signal sent"
+- **Solution:** Check Rust logs for "Received trade from..." and "Broadcasted to X workers"
+- **Solution:** Check Slave EA logs for "Connected to worker" and "Received trade"
 
 ### Network Issues
 
-**Problem:** ACK timeout
-- **Solution:** Check firewall allows UDP traffic
-- **Solution:** Verify slave EA is running and listening
-- **Solution:** Test connectivity with `nc -u <IP> <PORT>`
+**Problem:** Connection timeout
+- **Solution:** Check firewall allows TCP traffic
+- **Solution:** Verify worker is running and listening on the correct port
+- **Solution:** Verify slave EA is configured with correct Worker IP/Port
+- **Solution:** Test connectivity with `telnet <IP> <PORT>` or `nc <IP> <PORT>`
 
 ## Performance Tuning
 
-- **Broadcast Channel Size:** Increase `BROADCAST_CHANNEL_SIZE` in `main.rs` for high-frequency trading
-- **ACK Timeout:** Adjust `ACK_TIMEOUT_MS` in `worker.rs` based on network latency
-- **Max Retries:** Modify `MAX_RETRIES` in `worker.rs` for unreliable networks
+- **Broadcast Channel Size:** Increase broadcast channel size in `main.rs` for high-frequency trading (default: 1024)
+- **TCP Buffer Size:** Adjust socket buffer sizes for high-throughput scenarios
+- **Connection Pooling:** TCP maintains persistent connections, eliminating connection overhead
 
 ## Security Considerations
 
+- **TCP provides reliable delivery** - No lost trades due to packet loss
 - Use VPN (WireGuard) for production deployments
-- Implement HMAC signatures for message authentication
+- Implement TLS for encrypted TCP communication
 - Add IP whitelisting in router
-- Use TLS/DTLS for encrypted communication
+- Implement HMAC signatures for message authentication
 - Never expose router port to public internet
 
 ## Next Steps

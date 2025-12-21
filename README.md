@@ -4,16 +4,16 @@
 This project implements a **high-performance MetaTrader 5 → Rust → MetaTrader 5 trade copier**, designed for extremely low latency and unlimited scalability.
 
 ### Core workflow:
-- **Master EA** sends trade signals via **UDP**.
+- **Master EA** sends trade signals via **TCP**.
 - **Rust Router** receives signals and broadcasts them to workers using a **tokio broadcast channel**.
-- **Rust Workers** apply individualized risk settings and forward signals via UDP.
-- **Slave EA** receives signals, executes trades, and returns an ACK.
+- **Rust Workers** act as TCP servers and send trades to connected slave EAs.
+- **Slave EA** connects to worker, receives signals and executes trades.
 
 ### Architecture Diagram
 
 ```
     MASTER EA
-        │ UDP
+        │ TCP
         ▼
  ┌──────────────┐
  │ RUST ROUTER  │   tx.send(trade) → triggers ALL workers
@@ -23,8 +23,9 @@ This project implements a **high-performance MetaTrader 5 → Rust → MetaTrade
  │       │         │             │
  ▼       ▼         ▼             ▼
 W1      W2        W3            Wn
-UDP     UDP       UDP           UDP
- ▼       ▼         ▼            ▼
+(TCP)   (TCP)     (TCP)         (TCP)
+ ▲       ▲         ▲            ▲
+ │       │         │            │ TCP clients
 SL1    SL2        SL3          SLn
 (EA)   (EA)       (EA)         (EA)
 ```
@@ -32,27 +33,24 @@ SL1    SL2        SL3          SLn
 ## 2. Components
 | Component | Purpose |
 |----------|---------|
-| **Signal Sender EA** | Detects new trades and sends signals to Rust |
-| **Rust Router** | Receives signals and broadcasts them |
-| **Rust Workers** | Apply risk management and forward trades to slave terminals |
-| **Signal Receiver EA** | Executes trades and sends ACK replies |
+| **Signal Sender EA** | Detects new trades and sends signals to Rust Router via TCP |
+| **Rust Router** | Receives TCP connections from sender, broadcasts to workers |
+| **Rust Workers** | TCP servers that apply risk management and send trades to receivers |
+| **Signal Receiver EA** | Connects to worker, executes received trades |
 
 ## 3. Configuration (YAML)
 ```yaml
 slaves:
   - name: "Account01"
-    address: "192.168.1.101:5050"
-    local_bind: "0.0.0.0:6001"
+    address: "0.0.0.0:5051"
     multiplier: 1.0
 
   - name: "Account02"
-    address: "192.168.1.102:5050"
-    local_bind: "0.0.0.0:6002"
+    address: "0.0.0.0:5052"
     multiplier: 0.5
 
   - name: "Account03"
-    address: "192.168.1.103:5050"
-    local_bind: "0.0.0.0:6003"
+    address: "0.0.0.0:5053"
     multiplier: 2.0
 ```
 
@@ -91,16 +89,13 @@ while let Ok(trade) = rx.recv().await {
 }
 ```
 
-## 7. UDP ACK + Retry Logic
-Worker → Slave:
+## 7. TCP Communication & Message Framing
+Worker → Slave (newline-delimited JSON):
 ```json
 {"id":123456,"symbol":"EURUSD","type":"buy","lots":0.30,"price":1.08500,"sl":1.08000,"tp":1.09000,"cmd":"open"}
 ```
 
-Slave → Worker ACK:
-```json
-{"ack":123456}
-```
+TCP provides built-in reliability, so no manual ACK/retry logic is needed.
 
 ## 8. Master Signal Sender EA (MT5)
 ```mql5
@@ -114,8 +109,9 @@ json += "\"price\":" + DoubleToString(price, 5);
 if(sl > 0) json += ",\"sl\":" + DoubleToString(sl, 5);
 if(tp > 0) json += ",\"tp\":" + DoubleToString(tp, 5);
 json += ",\"cmd\":\"open\"}";
+json += "\n";  // Add newline delimiter
 
-// Send via UDP socket
+// Send via TCP socket
 uchar data[];
 StringToCharArray(json, data, 0, StringLen(json));
 int sent = SocketSend(socketHandle, data, ArraySize(data));
@@ -148,7 +144,7 @@ bool ParseAndExecuteTrade(string json_data)
 {
    // Extract fields: id, symbol, type, lots, price, sl, tp, cmd
    // Execute: trade.Buy() or trade.Sell()
-   // Send ACK: SendAck(trade_id)
+   // TCP ensures delivery, no ACK needed
 }
 ```
 

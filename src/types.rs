@@ -21,16 +21,10 @@ pub struct Trade {
 pub struct SlaveConfig {
     pub name: String,
     pub address: String,
-    pub local_bind: String,
     pub multiplier: f64,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub slaves: Vec<SlaveConfig>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Ack {
-    pub ack: u64,
 }

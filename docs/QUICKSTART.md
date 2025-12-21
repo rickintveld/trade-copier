@@ -12,8 +12,7 @@ Edit `config/slaves.yaml` with your slave account details:
 ```yaml
 slaves:
   - name: "FN-200k"
-    address: "127.0.0.1:5050"      # Localhost for testing
-    local_bind: "0.0.0.0:6001"
+    address: "0.0.0.0:5051"        # Worker TCP server address
     multiplier: 2.0
 ```
 
@@ -45,7 +44,7 @@ You should see:
 **Slave Terminal(s):**
 1. Compile `mql5/signal_receiver.mq5`
 2. Attach to any chart
-3. Set `ListenPort = 5050`
+3. Set `WorkerIP = "127.0.0.1"` and `WorkerPort = 5051`
 
 ### 5. Test It
 1. Open a trade on the **Master** terminal (e.g., Buy 0.1 EURUSD)
@@ -57,11 +56,11 @@ You should see:
 ## 📊 Architecture at a Glance
 
 ```
-Master MT5 → [UDP:5000] → Rust Router → Broadcast Channel
-                                             ↓
-                                         Workers (apply multipliers)
-                                             ↓
-                                        [UDP:5050] → Slave MT5(s)
+Master MT5 → [TCP:5000] → Rust Router → Broadcast Channel
+                                            ↓
+                                        Workers (apply multipliers)
+                                            ↓
+                                   [TCP:5051/5052/...] ← Slave MT5(s)
 ```
 
 ---
@@ -102,7 +101,7 @@ sudo journalctl -u trade-copier -f
 |---------|----------|
 | Port 5000 already in use | Change `ROUTER_PORT` in `src/router.rs` |
 | EA not sending trades | Enable "Allow DLL imports" in MT5 |
-| No ACK received | Check firewall, verify slave EA is running |
+| Connection failed | Check firewall allows TCP, verify worker is running |
 | Socket bind failed | Run MT5 as administrator |
 
 ---
@@ -142,7 +141,7 @@ sudo journalctl -u trade-copier -f
 ## ⚠️ Important Notes
 
 - **Always test on demo accounts first**
-- **UDP is unreliable** - Trades have ACK/retry logic (3 attempts)
+- **TCP connections** - Reliable, persistent connections between components
 - **Network security** - Use VPN/WireGuard in production
 - **Lot size rounding** - Lots rounded to 2 decimals (0.01 minimum)
 - **No position close handling** - Currently only copies new positions
@@ -151,7 +150,8 @@ sudo journalctl -u trade-copier -f
 
 ## 💡 Tips
 
-- Each slave needs a unique `local_bind` port (6001, 6002, 6003...)
+- Each worker needs a unique port (5051, 5052, 5053...)
+- Each slave EA must connect to its corresponding worker port
 - Multiplier of 1.0 = same lot size, 0.5 = half, 2.0 = double
 - Check MT5 "Experts" tab for EA logs
 - Watch Rust terminal for real-time trade flow

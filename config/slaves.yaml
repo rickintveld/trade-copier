@@ -1,13 +1,4 @@
 slaves:
-  - name: "PEPPERSTONE"
-    address: "192.168.1.101:5050"
-    local_bind: "0.0.0.0:6001"
-    multiplier: 10.0
-  - name: "FN-100k"
-    address: "192.168.1.101:5050"
-    local_bind: "0.0.0.0:6002"
-    multiplier: 2.0
   - name: "FN-200k"
-    address: "192.168.1.101:5050"
-    local_bind: "0.0.0.0:6003"
-    multiplier: 1.0
+    address: "0.0.0.0:5051"
+    multiplier: 2.0

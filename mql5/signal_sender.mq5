@@ -7,6 +7,8 @@
 #property version   "1.00"
 #property strict
 
+#define INVALID_SOCKET -1              // Invalid socket handle
+
 input string RouterIP = "127.0.0.1";  // Rust Router IP
 input int RouterPort = 5000;           // Rust Router Port
 
@@ -20,8 +22,8 @@ int OnInit()
    Print("[SENDER] Trade Copier Master EA started");
    Print("[SENDER] Sending signals to ", RouterIP, ":", RouterPort);
    
-   // Initialize UDP socket
-   socketHandle = SocketCreate(SOCKET_UDP);
+   // Initialize TCP socket
+   socketHandle = SocketCreate();
    if(socketHandle == INVALID_SOCKET)
    {
       Print("[SENDER] ERROR: Failed to create socket");
@@ -36,7 +38,7 @@ int OnInit()
       return INIT_FAILED;
    }
    
-   Print("[SENDER] Connected to router successfully");
+   Print("[SENDER] Connected to router successfully (TCP)");
    return INIT_SUCCEEDED;
 }
 
@@ -136,17 +138,20 @@ string BuildTradeJSON(
 }
 
 //+------------------------------------------------------------------+
-//| Send trade signal via UDP                                        |
+//| Send trade signal via TCP                                        |
 //+------------------------------------------------------------------+
 void SendTradeSignal(string json)
 {
    Print("[SENDER] Sending trade: ", json);
    
+   // Add newline delimiter for message framing
+   json += "\n";
+   
    // Convert string to char array for socket
    uchar data[];
    StringToCharArray(json, data, 0, StringLen(json));
    
-   // Send UDP packet
+   // Send TCP packet
    int sent = SocketSend(socketHandle, data, ArraySize(data));
    
    if(sent > 0)
