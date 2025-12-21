@@ -173,19 +173,89 @@ Before running the EAs, configure MT5 permissions:
 
 Without these permissions, the EAs will fail with "Failed to connect" errors.
 
-## 13. Deployment
+## 13. MT5 Instance Management
+
+### Installers for Windows and macOS
+
+This project includes CLI tools to manage multiple MT5 slave instances:
+
+#### Windows (`./installers/windows/`)
+
+Build the MT5 manager:
+```bash
+cd installers/windows
+cargo build --release
+```
+
+Create and manage multiple MT5 instances:
+```bash
+# Create instances
+mt5-manager create slave1
+mt5-manager create slave2
+
+# List all instances
+mt5-manager list
+
+# Start all instances (with 2s delay between each)
+mt5-manager start
+
+# Start specific instance
+mt5-manager start slave1
+
+# Delete instance
+mt5-manager delete slave1 --force
+```
+
+After creating instances, install MT5 from your broker to the created directories (e.g., `C:\MT5-slave1`).
+
+#### macOS (`./installers/mac/`)
+
+**Prerequisites:** Wine must be installed (`brew install --cask wine-stable`)
+
+Build the MT5 manager:
+```bash
+cd installers/mac
+cargo build --release
+```
+
+Create and manage MT5 instances with Wine:
+```bash
+# Create instance (installs MT5 automatically)
+mt5-manager create --name slave1 --installer ~/Downloads/mt5setup.exe
+
+# List all instances
+mt5-manager list
+
+# Start all instances
+mt5-manager start --all
+
+# Start specific instance
+mt5-manager start slave1
+
+# Delete instance
+mt5-manager delete slave1
+```
+
+Each instance runs in an isolated Wine prefix at `~/.wine-mt5-instance{N}`.
+
+See the respective README files in `./installers/windows/` and `./installers/mac/` for detailed documentation.
+
+## 14. Deployment
 Rust backend on Linux:
 ```bash
 systemctl enable trade_copier
 systemctl start trade_copier
 ```
 
-## 14. Directory Structure
+## 15. Directory Structure
 ```
 trade_copier/
  ├ src/
  ├ config/
  ├ mql5/
+ ├ installers/
+ │  ├ windows/    # MT5 manager for Windows
+ │  └ mac/        # MT5 manager for macOS
  └ trade_copier.zip
 ```
 
