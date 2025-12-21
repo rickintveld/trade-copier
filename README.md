@@ -157,14 +157,30 @@ bool ParseAndExecuteTrade(string json_data)
 ## 11. Testing
 ### Unit, integration, end-to-end tests.
 
-## 12. Deployment
+## 12. MetaTrader 5 Setup
+Before running the EAs, configure MT5 permissions:
+
+1. Open **Tools → Options → Expert Advisors**
+2. Enable the following:
+   - ☑ **Allow automated trading**
+   - ☑ **Allow DLL imports**
+3. In **"Allow WebRequest for listed URL"**, add:
+   ```
+   127.0.0.1:5000
+   127.0.0.1:5050
+   ```
+4. Click **OK** and restart MT5
+
+Without these permissions, the EAs will fail with "Failed to connect" errors.
+
+## 13. Deployment
 Rust backend on Linux:
 ```bash
 systemctl enable trade_copier
 systemctl start trade_copier
 ```
 
-## 13. Directory Structure
+## 14. Directory Structure
 ```
 trade_copier/
  ├ src/
@@ -173,5 +189,5 @@ trade_copier/
  └ trade_copier.zip
 ```
 
-## 14. Conclusion
+## 15. Conclusion
 A scalable, parallelized, low‑latency copier designed for professional environments.

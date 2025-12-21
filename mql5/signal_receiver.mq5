@@ -31,14 +31,19 @@ int OnInit()
    socketHandle = SocketCreate();
    if(socketHandle == INVALID_SOCKET)
    {
-      Print("[RECEIVER] ERROR: Failed to create socket");
+      int error = GetLastError();
+      Print("[RECEIVER] ERROR: Failed to create socket, error code: ", error);
       return INIT_FAILED;
    }
+   
+   Print("[RECEIVER] Socket created successfully, handle: ", socketHandle);
    
    // Connect to Rust worker's TCP server
    if(!SocketConnect(socketHandle, WorkerIP, WorkerPort, 1000))
    {
-      Print("[RECEIVER] ERROR: Failed to connect to worker at ", WorkerIP, ":", WorkerPort);
+      int error = GetLastError();
+      Print("[RECEIVER] ERROR: Failed to connect to worker at ", WorkerIP, ":", WorkerPort, ", error code: ", error);
+      Print("[RECEIVER] Common error codes: 5002=DLL not allowed, 4014=Internal error, 5200=Socket error");
       SocketClose(socketHandle);
       return INIT_FAILED;
    }

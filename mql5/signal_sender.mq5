@@ -26,14 +26,19 @@ int OnInit()
    socketHandle = SocketCreate();
    if(socketHandle == INVALID_SOCKET)
    {
-      Print("[SENDER] ERROR: Failed to create socket");
+      int error = GetLastError();
+      Print("[SENDER] ERROR: Failed to create socket, error code: ", error);
       return INIT_FAILED;
    }
+   
+   Print("[SENDER] Socket created successfully, handle: ", socketHandle);
    
    // Connect to router
    if(!SocketConnect(socketHandle, RouterIP, RouterPort, 1000))
    {
-      Print("[SENDER] ERROR: Failed to connect to router at ", RouterIP, ":", RouterPort);
+      int error = GetLastError();
+      Print("[SENDER] ERROR: Failed to connect to router at ", RouterIP, ":", RouterPort, ", error code: ", error);
+      Print("[SENDER] Common error codes: 5002=DLL not allowed, 4014=Internal error, 5200=Socket error");
       SocketClose(socketHandle);
       return INIT_FAILED;
    }
