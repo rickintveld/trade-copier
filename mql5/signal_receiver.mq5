@@ -9,6 +9,9 @@
 
 #include <Trade\Trade.mqh>
 
+#define INVALID_SOCKET -1              // Invalid socket handle
+#define SOCKET_UDP 1                   // UDP socket type
+
 input int ListenPort = 5050;           // UDP Listen Port
 input int MagicNumber = 999888;        // Magic Number for trades
 input int Slippage = 10;               // Slippage in points
@@ -25,6 +28,9 @@ int OnInit()
    Print("[RECEIVER] Listening on port ", ListenPort);
    
    // Initialize UDP socket
+   // Note: MQL5 doesn't support server-side UDP listening with SocketBind
+   // For receiving UDP packets, you'll need to use a different approach
+   // such as connecting to a local address or using TCP sockets instead
    socketHandle = SocketCreate(SOCKET_UDP);
    if(socketHandle == INVALID_SOCKET)
    {
@@ -32,16 +38,13 @@ int OnInit()
       return INIT_FAILED;
    }
    
-   // Bind socket to port
-   if(!SocketBind(socketHandle, ListenPort))
+   // Connect to localhost to receive on specific port
+   if(!SocketConnect(socketHandle, "127.0.0.1", ListenPort, 1000))
    {
-      Print("[RECEIVER] ERROR: Failed to bind to port ", ListenPort);
+      Print("[RECEIVER] ERROR: Failed to connect to port ", ListenPort);
       SocketClose(socketHandle);
       return INIT_FAILED;
    }
-   
-   // Set non-blocking mode
-   SocketSetOption(socketHandle, SOCKET_READABLE, true);
    
    // Set trade parameters
    trade.SetExpertMagicNumber(MagicNumber);
@@ -162,7 +165,7 @@ bool ParseAndExecuteTrade(string json_data)
 //+------------------------------------------------------------------+
 void SendAck(ulong trade_id)
 {
-   string ack_json = "{\"ack\":" + IntegerToString(trade_id) + "}";
+   string ack_json = "{\\\"ack\\\":" + IntegerToString(trade_id) + "}";
    
    // Convert to char array
    uchar data[];
@@ -177,10 +180,9 @@ void SendAck(ulong trade_id)
 }
 
 //+------------------------------------------------------------------+
-//| Extract field from JSON (simple parser)                         |
+//| Extract field from JSON (simple parser) - ulong overload        |
 //+------------------------------------------------------------------+
-template<typename T>
-bool ExtractJSONField(string json, string field_name, T &value)
+bool ExtractJSONField(string json, string field_name, ulong &value)
 {
    string search = "\"" + field_name + "\":";
    int pos = StringFind(json, search);
@@ -190,15 +192,15 @@ bool ExtractJSONField(string json, string field_name, T &value)
    pos += StringLen(search);
    
    // Skip whitespace and quotes
-   while(pos < StringLen(json) && (StringGetChar(json, pos) == ' ' || StringGetChar(json, pos) == '\"'))
+   while(pos < StringLen(json) && (StringGetCharacter(json, pos) == ' ' || StringGetCharacter(json, pos) == '"'))
       pos++;
    
    // Extract value
    string value_str = "";
    while(pos < StringLen(json))
    {
-      ushort ch = StringGetChar(json, pos);
-      if(ch == ',' || ch == '}' || ch == '\"')
+      ushort ch = StringGetCharacter(json, pos);
+      if(ch == ',' || ch == '}' || ch == '"')
          break;
       value_str += ShortToString(ch);
       pos++;
@@ -207,13 +209,73 @@ bool ExtractJSONField(string json, string field_name, T &value)
    value_str = StringTrimLeft(value_str);
    value_str = StringTrimRight(value_str);
    
-   // Convert to appropriate type
-   if(typename(T) == "ulong")
-      value = (T)StringToInteger(value_str);
-   else if(typename(T) == "double")
-      value = (T)StringToDouble(value_str);
-   else if(typename(T) == "string")
-      value = (T)value_str;
-   
+   value = (ulong)StringToInteger(value_str);
    return StringLen(value_str) > 0;
+}
+
+//+------------------------------------------------------------------+
+//| Extract field from JSON (simple parser) - double overload       |
+//+------------------------------------------------------------------+
+bool ExtractJSONField(string json, string field_name, double &value)
+{
+   string search = "\"" + field_name + "\":";
+   int pos = StringFind(json, search);
+   
+   if(pos < 0) return false;
+   
+   pos += StringLen(search);
+   
+   // Skip whitespace and quotes
+   while(pos < StringLen(json) && (StringGetCharacter(json, pos) == ' ' || StringGetCharacter(json, pos) == '"'))
+      pos++;
+   
+   // Extract value
+   string value_str = "";
+   while(pos < StringLen(json))
+   {
+      ushort ch = StringGetCharacter(json, pos);
+      if(ch == ',' || ch == '}' || ch == '"')
+         break;
+      value_str += ShortToString(ch);
+      pos++;
+   }
+   
+   value_str = StringTrimLeft(value_str);
+   value_str = StringTrimRight(value_str);
+   
+   value = StringToDouble(value_str);
+   return StringLen(value_str) > 0;
+}
+
+//+------------------------------------------------------------------+
+//| Extract field from JSON (simple parser) - string overload       |
+//+------------------------------------------------------------------+
+bool ExtractJSONField(string json, string field_name, string &value)
+{
+   string search = "\"" + field_name + "\":";
+   int pos = StringFind(json, search);
+   
+   if(pos < 0) return false;
+   
+   pos += StringLen(search);
+   
+   // Skip whitespace and quotes
+   while(pos < StringLen(json) && (StringGetCharacter(json, pos) == ' ' || StringGetCharacter(json, pos) == '"'))
+      pos++;
+   
+   // Extract value
+   string value_str = "";
+   while(pos < StringLen(json))
+   {
+      ushort ch = StringGetCharacter(json, pos);
+      if(ch == ',' || ch == '}' || ch == '"')
+         break;
+      value_str += ShortToString(ch);
+      pos++;
+   }
+   
+   value = StringTrimLeft(value_str);
+   value = StringTrimRight(value_str);
+   
+   return StringLen(value) > 0;
 }
