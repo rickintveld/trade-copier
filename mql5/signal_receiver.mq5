@@ -111,8 +111,7 @@ void CheckIncomingTrades()
    if(received > 0)
    {
       // Convert to string
-      string data = CharArrayToString(buffer, 0, received);
-      Print("[RECEIVER] Received packet (", received, " bytes): ", data);
+      string data = CharArrayToString(buffer, 0, received, CP_UTF8);
       
       // Parse and execute trade (may contain multiple newline-delimited messages)
       string messages[];
@@ -121,12 +120,7 @@ void CheckIncomingTrades()
       for(int i = 0; i < count; i++)
       {
          if(StringLen(messages[i]) > 0)
-         {
-            if(ParseAndExecuteTrade(messages[i]))
-               Print("[RECEIVER] Trade executed successfully");
-            else
-               Print("[RECEIVER] Failed to execute trade");
-         }
+            ParseAndExecuteTrade(messages[i]);
       }
    }
 }
@@ -136,7 +130,7 @@ void CheckIncomingTrades()
 //+------------------------------------------------------------------+
 bool ParseAndExecuteTrade(string json_data)
 {
-   // Simple JSON parsing (in production, use a proper JSON library)
+   
    ulong trade_id = 0;
    string symbol = "";
    string trade_type = "";
@@ -147,17 +141,14 @@ bool ParseAndExecuteTrade(string json_data)
    string cmd = "open";  // Default to open
    
    // Extract fields from JSON
-   if(!ExtractJSONField(json_data, "id", trade_id)) return false;
-   if(!ExtractJSONField(json_data, "symbol", symbol)) return false;
-   if(!ExtractJSONField(json_data, "type", trade_type)) return false;
-   if(!ExtractJSONField(json_data, "lots", lots)) return false;
+   if(!ExtractJSONULong(json_data, "id", trade_id)) return false;
+   if(!ExtractJSONString(json_data, "symbol", symbol)) return false;
+   if(!ExtractJSONString(json_data, "type", trade_type)) return false;
+   if(!ExtractJSONDouble(json_data, "lots", lots)) return false;
    
-   ExtractJSONField(json_data, "price", price);
-   ExtractJSONField(json_data, "sl", sl);
-   ExtractJSONField(json_data, "tp", tp);
-   ExtractJSONField(json_data, "cmd", cmd);
-   
-   Print("[RECEIVER] Parsed trade: ID=", trade_id, " Symbol=", symbol, " Cmd=", cmd);
+   ExtractJSONDouble(json_data, "sl", sl);
+   ExtractJSONDouble(json_data, "tp", tp);
+   ExtractJSONString(json_data, "cmd", cmd);
    
    // Handle different commands
    bool success = false;
@@ -177,91 +168,44 @@ bool ParseAndExecuteTrade(string json_data)
       if(success)
       {
          ulong ticket = trade.ResultOrder();
-         // Get actual position ticket (not order ticket)
          if(PositionSelectByTicket(ticket))
             ticket = PositionGetInteger(POSITION_TICKET);
          else if(PositionSelect(symbol))
             ticket = PositionGetInteger(POSITION_TICKET);
-            
          AddPositionMapping(trade_id, ticket);
-         Print("[RECEIVER] Position opened: ticket=", ticket, " trade_id=", trade_id);
-         return true;
       }
-      else
-      {
-         Print("[RECEIVER] Failed to open position: ", trade.ResultRetcodeDescription());
-         return false;
-      }
+      return success;
    }
    else if(cmd == "close")
    {
-      // Close existing position
       int idx = FindTradeIdIndex(trade_id);
-      if(idx < 0)
-      {
-         Print("[RECEIVER] WARNING: Cannot close - trade_id ", trade_id, " not found in tracking");
-         return false;
-      }
+      if(idx < 0) return false;
       
-      ulong ticket = g_position_tickets[idx];
-      success = trade.PositionClose(ticket);
-      
+      success = trade.PositionClose(g_position_tickets[idx]);
       if(success)
-      {
-         Print("[RECEIVER] Position closed: ticket=", ticket, " trade_id=", trade_id);
          RemovePositionMapping(trade_id);
-         return true;
-      }
-      else
-      {
-         Print("[RECEIVER] Failed to close position: ", trade.ResultRetcodeDescription());
-         return false;
-      }
+      return success;
    }
    else if(cmd == "modify")
    {
-      // Modify existing position SL/TP
       int idx = FindTradeIdIndex(trade_id);
-      if(idx < 0)
-      {
-         Print("[RECEIVER] WARNING: Cannot modify - trade_id ", trade_id, " not found in tracking");
-         return false;
-      }
+      if(idx < 0) return false;
       
       ulong ticket = g_position_tickets[idx];
-      
-      // Get current position symbol for PositionModify
       if(!PositionSelectByTicket(ticket))
       {
-         Print("[RECEIVER] WARNING: Position ticket ", ticket, " no longer exists");
          RemovePositionMapping(trade_id);
          return false;
       }
-      
-      success = trade.PositionModify(ticket, sl, tp);
-      
-      if(success)
-      {
-         Print("[RECEIVER] Position modified: ticket=", ticket, " SL=", sl, " TP=", tp);
-         return true;
-      }
-      else
-      {
-         Print("[RECEIVER] Failed to modify position: ", trade.ResultRetcodeDescription());
-         return false;
-      }
+      return trade.PositionModify(ticket, sl, tp);
    }
-   else
-   {
-      Print("[RECEIVER] ERROR: Unknown command: ", cmd);
-      return false;
-   }
+   return false;
 }
 
 //+------------------------------------------------------------------+
-//| Extract field from JSON (simple parser) - ulong overload        |
+//| Extract field from JSON (simple parser) - ulong version         |
 //+------------------------------------------------------------------+
-bool ExtractJSONField(string json, string field_name, ulong &value)
+bool ExtractJSONULong(string json, string field_name, ulong &value)
 {
    string search = "\"" + field_name + "\":";
    int pos = StringFind(json, search);
@@ -270,32 +214,37 @@ bool ExtractJSONField(string json, string field_name, ulong &value)
    
    pos += StringLen(search);
    
-   // Skip whitespace and quotes
-   while(pos < StringLen(json) && (StringGetCharacter(json, pos) == ' ' || StringGetCharacter(json, pos) == '"'))
+   // Skip whitespace
+   while(pos < StringLen(json) && StringGetCharacter(json, pos) == ' ')
       pos++;
    
-   // Extract value
-   string value_str = "";
+   // Find end of value
+   int start_pos = pos;
    while(pos < StringLen(json))
    {
       ushort ch = StringGetCharacter(json, pos);
-      if(ch == ',' || ch == '}' || ch == '"')
+      if(ch == ',' || ch == '}' || ch == ' ')
          break;
-      value_str += ShortToString(ch);
       pos++;
    }
    
-   value_str = StringTrimLeft(value_str);
-   value_str = StringTrimRight(value_str);
+   // Parse ulong manually to handle large numbers
+   value = 0;
+   while(start_pos < pos)
+   {
+      ushort digit = StringGetCharacter(json, start_pos);
+      if(digit >= '0' && digit <= '9')
+         value = value * 10 + (digit - '0');
+      start_pos++;
+   }
    
-   value = (ulong)StringToInteger(value_str);
-   return StringLen(value_str) > 0;
+   return value > 0;
 }
 
 //+------------------------------------------------------------------+
-//| Extract field from JSON (simple parser) - double overload       |
+//| Extract field from JSON (simple parser) - double version        |
 //+------------------------------------------------------------------+
-bool ExtractJSONField(string json, string field_name, double &value)
+bool ExtractJSONDouble(string json, string field_name, double &value)
 {
    string search = "\"" + field_name + "\":";
    int pos = StringFind(json, search);
@@ -304,32 +253,28 @@ bool ExtractJSONField(string json, string field_name, double &value)
    
    pos += StringLen(search);
    
-   // Skip whitespace and quotes
-   while(pos < StringLen(json) && (StringGetCharacter(json, pos) == ' ' || StringGetCharacter(json, pos) == '"'))
+   // Skip whitespace
+   while(pos < StringLen(json) && StringGetCharacter(json, pos) == ' ')
       pos++;
    
-   // Extract value
-   string value_str = "";
+   // Find end of value
+   int start_pos = pos;
    while(pos < StringLen(json))
    {
       ushort ch = StringGetCharacter(json, pos);
-      if(ch == ',' || ch == '}' || ch == '"')
+      if(ch == ',' || ch == '}' || ch == ' ')
          break;
-      value_str += ShortToString(ch);
       pos++;
    }
    
-   value_str = StringTrimLeft(value_str);
-   value_str = StringTrimRight(value_str);
-   
-   value = StringToDouble(value_str);
-   return StringLen(value_str) > 0;
+   value = StringToDouble(StringSubstr(json, start_pos, pos - start_pos));
+   return pos > start_pos;
 }
 
 //+------------------------------------------------------------------+
-//| Extract field from JSON (simple parser) - string overload       |
+//| Extract field from JSON (simple parser) - string version        |
 //+------------------------------------------------------------------+
-bool ExtractJSONField(string json, string field_name, string &value)
+bool ExtractJSONString(string json, string field_name, string &value)
 {
    string search = "\"" + field_name + "\":";
    int pos = StringFind(json, search);
@@ -338,25 +283,24 @@ bool ExtractJSONField(string json, string field_name, string &value)
    
    pos += StringLen(search);
    
-   // Skip whitespace and quotes
-   while(pos < StringLen(json) && (StringGetCharacter(json, pos) == ' ' || StringGetCharacter(json, pos) == '"'))
+   // Skip whitespace
+   while(pos < StringLen(json) && StringGetCharacter(json, pos) == ' ')
       pos++;
    
-   // Extract value
-   string value_str = "";
+   if(StringGetCharacter(json, pos) == '"')
+      pos++; // Skip opening quote
+   
+   int start_pos = pos;
    while(pos < StringLen(json))
    {
       ushort ch = StringGetCharacter(json, pos);
-      if(ch == ',' || ch == '}' || ch == '"')
+      if(ch == '"' || ch == ',' || ch == '}')
          break;
-      value_str += ShortToString(ch);
       pos++;
    }
    
-   value = StringTrimLeft(value_str);
-   value = StringTrimRight(value_str);
-   
-   return StringLen(value) > 0;
+   value = StringSubstr(json, start_pos, pos - start_pos);
+   return pos > start_pos;
 }
 
 //+------------------------------------------------------------------+
@@ -374,11 +318,9 @@ int FindTradeIdIndex(ulong trade_id)
 
 void AddPositionMapping(ulong trade_id, ulong ticket)
 {
-   // Check if already exists (shouldn't happen, but be safe)
    int idx = FindTradeIdIndex(trade_id);
    if(idx >= 0)
    {
-      // Update existing mapping
       g_position_tickets[idx] = ticket;
       return;
    }
@@ -386,11 +328,8 @@ void AddPositionMapping(ulong trade_id, ulong ticket)
    g_tracking_count++;
    ArrayResize(g_trade_ids, g_tracking_count);
    ArrayResize(g_position_tickets, g_tracking_count);
-   
    g_trade_ids[g_tracking_count - 1] = trade_id;
    g_position_tickets[g_tracking_count - 1] = ticket;
-   
-   Print("[RECEIVER] Mapped trade_id=", trade_id, " to ticket=", ticket);
 }
 
 void RemovePositionMapping(ulong trade_id)
@@ -398,16 +337,12 @@ void RemovePositionMapping(ulong trade_id)
    int idx = FindTradeIdIndex(trade_id);
    if(idx < 0) return;
    
-   // Shift arrays to remove element
    for(int i = idx; i < g_tracking_count - 1; i++)
    {
       g_trade_ids[i] = g_trade_ids[i + 1];
       g_position_tickets[i] = g_position_tickets[i + 1];
    }
-   
    g_tracking_count--;
    ArrayResize(g_trade_ids, g_tracking_count);
    ArrayResize(g_position_tickets, g_tracking_count);
-   
-   Print("[RECEIVER] Removed mapping for trade_id=", trade_id);
 }

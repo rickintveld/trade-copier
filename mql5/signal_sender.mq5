@@ -114,62 +114,47 @@ void OnTradeTransaction(
             ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
             ulong position_ticket = HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID);
             
-            // Determine if this is an entry (open) or exit (close)
-            if(deal_entry == DEAL_ENTRY_IN)
+            // Handle position OPEN
+            if(deal_entry == DEAL_ENTRY_IN && (deal_type == DEAL_TYPE_BUY || deal_type == DEAL_TYPE_SELL))
             {
-               // Position OPEN
-               if(deal_type == DEAL_TYPE_BUY || deal_type == DEAL_TYPE_SELL)
+               // Get position info for SL/TP
+               double sl = 0.0, tp = 0.0;
+               if(PositionSelectByTicket(position_ticket))
                {
-                  string trade_type = (deal_type == DEAL_TYPE_BUY) ? "buy" : "sell";
-                  
-                  // Get position info for SL/TP
-                  double sl = 0.0;
-                  double tp = 0.0;
-                  if(PositionSelectByTicket(position_ticket))
-                  {
-                     sl = PositionGetDouble(POSITION_SL);
-                     tp = PositionGetDouble(POSITION_TP);
-                  }
-                  
-                  // Generate unique trade ID
-                  ulong trade_id = (ulong)TimeLocal() * 1000000 + deal_ticket;
-                  
-                  // Track this position
-                  AddPositionTracking(position_ticket, trade_id, sl, tp);
-                  
-                  // Build and send open signal
-                  string json = "{";
-                  json += "\"id\":" + IntegerToString(trade_id) + ",";
-                  json += "\"symbol\":\"" + symbol + "\",";
-                  json += "\"type\":\"" + trade_type + "\",";
-                  json += "\"lots\":" + DoubleToString(lots, 2) + ",";
-                  json += "\"price\":" + DoubleToString(price, 5);
-                  if(sl > 0) json += ",\"sl\":" + DoubleToString(sl, 5);
-                  if(tp > 0) json += ",\"tp\":" + DoubleToString(tp, 5);
-                  json += ",\"cmd\":\"open\"}";
-                  
-                  SendTradeSignal(json);
+                  sl = PositionGetDouble(POSITION_SL);
+                  tp = PositionGetDouble(POSITION_TP);
                }
+               
+               // Generate unique trade ID and track position
+               ulong trade_id = (ulong)TimeLocal() * 1000000 + deal_ticket;
+               AddPositionTracking(position_ticket, trade_id, sl, tp);
+               
+               // Build and send open signal
+               string json = "{\"id\":" + IntegerToString(trade_id) + 
+                            ",\"symbol\":\"" + symbol + 
+                            "\",\"type\":\"" + ((deal_type == DEAL_TYPE_BUY) ? "buy" : "sell") + 
+                            "\",\"lots\":" + DoubleToString(lots, 2) + 
+                            ",\"price\":" + DoubleToString(price, 5);
+               
+               if(sl > 0) json += ",\"sl\":" + DoubleToString(sl, 5);
+               if(tp > 0) json += ",\"tp\":" + DoubleToString(tp, 5);
+               json += ",\"cmd\":\"open\"}";
+               
+               SendTradeSignal(json);
             }
+            // Handle position CLOSE
             else if(deal_entry == DEAL_ENTRY_OUT)
             {
-               // Position CLOSE
                int idx = FindPositionIndex(position_ticket);
                if(idx >= 0)
                {
-                  ulong trade_id = g_trade_ids[idx];
-                  
                   // Build and send close signal
-                  string json = "{";
-                  json += "\"id\":" + IntegerToString(trade_id) + ",";
-                  json += "\"symbol\":\"" + symbol + "\",";
-                  json += "\"type\":\"buy\",";  // type not critical for close
-                  json += "\"lots\":" + DoubleToString(lots, 2) + ",";
-                  json += "\"cmd\":\"close\"}";
+                  string json = "{\"id\":" + IntegerToString(g_trade_ids[idx]) + 
+                               ",\"symbol\":\"" + symbol + 
+                               "\",\"lots\":" + DoubleToString(lots, 2) + 
+                               ",\"cmd\":\"close\"}";
                   
                   SendTradeSignal(json);
-                  
-                  // Remove from tracking
                   RemovePositionTracking(position_ticket);
                }
             }
@@ -185,37 +170,31 @@ void CheckPositionModifications()
 {
    for(int i = 0; i < g_tracking_count; i++)
    {
-      ulong ticket = g_position_tickets[i];
+      if(!PositionSelectByTicket(g_position_tickets[i]))
+         continue;
       
-      if(PositionSelectByTicket(ticket))
-      {
-         double current_sl = PositionGetDouble(POSITION_SL);
-         double current_tp = PositionGetDouble(POSITION_TP);
-         
-         // Check if SL or TP changed
-         if(current_sl != g_position_states[i].sl || current_tp != g_position_states[i].tp)
-         {
-            // Update stored state
-            g_position_states[i].sl = current_sl;
-            g_position_states[i].tp = current_tp;
-            
-            // Send modify signal
-            string symbol = PositionGetString(POSITION_SYMBOL);
-            string type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "buy" : "sell";
-            double lots = PositionGetDouble(POSITION_VOLUME);
-            
-            string json = "{";
-            json += "\"id\":" + IntegerToString(g_trade_ids[i]) + ",";
-            json += "\"symbol\":\"" + symbol + "\",";
-            json += "\"type\":\"" + type + "\",";
-            json += "\"lots\":" + DoubleToString(lots, 2);
-            if(current_sl > 0) json += ",\"sl\":" + DoubleToString(current_sl, 5);
-            if(current_tp > 0) json += ",\"tp\":" + DoubleToString(current_tp, 5);
-            json += ",\"cmd\":\"modify\"}";
-            
-            SendTradeSignal(json);
-         }
-      }
+      double current_sl = PositionGetDouble(POSITION_SL);
+      double current_tp = PositionGetDouble(POSITION_TP);
+      
+      // Check if SL or TP changed
+      if(current_sl == g_position_states[i].sl && current_tp == g_position_states[i].tp)
+         continue;
+      
+      // Update stored state
+      g_position_states[i].sl = current_sl;
+      g_position_states[i].tp = current_tp;
+      
+      // Build and send modify signal
+      string json = "{\"id\":" + IntegerToString(g_trade_ids[i]) + 
+                    ",\"symbol\":\"" + PositionGetString(POSITION_SYMBOL) + 
+                    "\",\"type\":\"" + ((PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "buy" : "sell") + 
+                    "\",\"lots\":" + DoubleToString(PositionGetDouble(POSITION_VOLUME), 2);
+      
+      if(current_sl > 0) json += ",\"sl\":" + DoubleToString(current_sl, 5);
+      if(current_tp > 0) json += ",\"tp\":" + DoubleToString(current_tp, 5);
+      json += ",\"cmd\":\"modify\"}";
+      
+      SendTradeSignal(json);
    }
 }
 
@@ -224,22 +203,16 @@ void CheckPositionModifications()
 //+------------------------------------------------------------------+
 void SendTradeSignal(string json)
 {
-   Print("[SENDER] Sending trade: ", json);
+   Print("[SENDER] Sending: ", json);
    
-   // Add newline delimiter for message framing
    json += "\n";
-   
-   // Convert string to char array for socket
    uchar data[];
-   StringToCharArray(json, data, 0, StringLen(json));
+   int len = StringToCharArray(json, data, 0, WHOLE_ARRAY, CP_UTF8) - 1;
+   ArrayResize(data, len);
    
-   // Send TCP packet
-   int sent = SocketSend(socketHandle, data, ArraySize(data));
-   
-   if(sent > 0)
-      Print("[SENDER] Trade signal sent successfully (", sent, " bytes)");
-   else
-      Print("[SENDER] ERROR: Failed to send trade signal, error: ", GetLastError());
+   int sent = SocketSend(socketHandle, data, len);
+   if(sent <= 0)
+      Print("[SENDER] ERROR: Send failed, error: ", GetLastError());
 }
 
 //+------------------------------------------------------------------+
@@ -275,18 +248,17 @@ void RemovePositionTracking(ulong ticket)
    int idx = FindPositionIndex(ticket);
    if(idx < 0) return;
    
+   g_tracking_count--;
+   
    // Shift arrays to remove element
-   for(int i = idx; i < g_tracking_count - 1; i++)
+   for(int i = idx; i < g_tracking_count; i++)
    {
       g_position_tickets[i] = g_position_tickets[i + 1];
       g_trade_ids[i] = g_trade_ids[i + 1];
       g_position_states[i] = g_position_states[i + 1];
    }
    
-   g_tracking_count--;
    ArrayResize(g_position_tickets, g_tracking_count);
    ArrayResize(g_trade_ids, g_tracking_count);
    ArrayResize(g_position_states, g_tracking_count);
-   
-   Print("[SENDER] Stopped tracking position: ticket=", ticket);
 }
