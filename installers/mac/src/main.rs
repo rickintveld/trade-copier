@@ -49,12 +49,17 @@ fn handle_create(name: &str, installer: &std::path::Path) -> Result<()> {
     // Create Wine prefix
     wine::create_wine_prefix(&prefix_path)?;
 
-    // Install MT5
-    wine::install_mt5(&prefix_path, installer)?;
-
-    // Create instance metadata
+    // Create and save instance metadata immediately after Wine prefix creation
     let instance = Instance::new(id, name.to_string(), prefix_path.clone());
-    manager.add_instance(instance)?;
+    manager.add_instance(instance.clone())?;
+
+    // Install MT5 (if this fails, instance is already saved and can be managed)
+    if let Err(e) = wine::install_mt5(&prefix_path, installer) {
+        eprintln!("\n⚠ Warning: MT5 installation failed: {}", e);
+        eprintln!("The instance was created but MT5 installation incomplete.");
+        eprintln!("You can delete it with: mt5-manager delete {}", name);
+        return Err(e);
+    }
 
     println!("\n✓ Instance '{}' created successfully!", name);
     println!("  ID: {}", id);
