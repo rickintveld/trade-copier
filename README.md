@@ -270,13 +270,23 @@ systemctl start trade_copier
 ```
 trade_copier/
  ├ src/
+ │  ├ main.rs
+ │  ├ router.rs
+ │  ├ worker.rs
+ │  └ types.rs
  ├ config/
+ │  └ slaves.yaml
  ├ mql5/
+ │  ├ signal_sender.mq5
+ │  └ signal_receiver.mq5
  ├ installers/
  │  ├ windows/    # MT5 manager for Windows
  │  └ mac/        # MT5 manager for macOS
- └ trade_copier.zip
+ ├ docs/
+ ├ Cargo.toml
+ ├ Cargo.lock
+ └ README.md
 ```
 
-## 15. Conclusion
+## 16. Conclusion
 A scalable, parallelized, low‑latency copier designed for professional environments.
