@@ -119,24 +119,35 @@ pub async fn run_worker(
                         Ok(latency_ms) => {
                             println!("[WORKER:{}] Trade sent successfully, latency: {}ms", slave.name, latency_ms);
                             
-                            // Update latency in database
-                            if let Err(e) = db.update_worker_latency(&slave.address, latency_ms).await {
-                                eprintln!("[WORKER:{}] Failed to update latency in database: {}", slave.name, e);
-                            }
-                            
-                            // Save trade to database after successful processing
-                            if let Err(e) = db.insert_trade(&slave.address, &trade).await {
-                                let error_msg = format!("Failed to save trade to database: {}", e);
-                                eprintln!("[WORKER:{}] {}", slave.name, error_msg);
-                                // Log warning - trade was sent but not saved
-                                if let Err(db_err) = db.insert_worker_error(
-                                    &slave.address,
-                                    ErrorSeverity::Warning,
-                                    &error_msg,
-                                ).await {
-                                    eprintln!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
+                            // Spawn background task to update latency (non-blocking)
+                            let db_clone = db.clone();
+                            let address_clone = slave.address.clone();
+                            let name_clone = slave.name.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = db_clone.update_worker_latency(&address_clone, latency_ms).await {
+                                    eprintln!("[WORKER:{}] Failed to update latency in database: {}", name_clone, e);
                                 }
-                            }
+                            });
+                            
+                            // Spawn background task to save trade (non-blocking)
+                            let db_clone = db.clone();
+                            let address_clone = slave.address.clone();
+                            let trade_clone = trade.clone();
+                            let name_clone = slave.name.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = db_clone.insert_trade(&address_clone, &trade_clone).await {
+                                    let error_msg = format!("Failed to save trade to database: {}", e);
+                                    eprintln!("[WORKER:{}] {}", name_clone, error_msg);
+                                    // Log warning - trade was sent but not saved
+                                    if let Err(db_err) = db_clone.insert_worker_error(
+                                        &address_clone,
+                                        ErrorSeverity::Warning,
+                                        &error_msg,
+                                    ).await {
+                                        eprintln!("[WORKER:{}] Failed to log error to database: {}", name_clone, db_err);
+                                    }
+                                }
+                            });
                         }
                         Err(e) => {
                             let error_msg = format!("Failed to send trade: {}", e);
