@@ -1,5 +1,6 @@
 use anyhow::Result;
 use tokio_rusqlite::Connection;
+use serde::Serialize;
 use crate::types::Trade;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -271,4 +272,142 @@ impl Database {
         
         Ok(())
     }
+    
+    // Query methods for API endpoints
+    pub async fn get_all_workers(&self) -> Result<Vec<WorkerRecord>> {
+        let result = self.conn.call(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, name, address, multiplier, state, last_error, latency_ms, created_at, updated_at 
+                 FROM workers ORDER BY created_at DESC"
+            )?;
+            
+            let workers = stmt.query_map([], |row| {
+                Ok(WorkerRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    address: row.get(2)?,
+                    multiplier: row.get(3)?,
+                    state: row.get(4)?,
+                    last_error: row.get(5)?,
+                    latency_ms: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            })?.collect::<Result<Vec<_>, _>>()?;
+            
+            Ok(workers)
+        }).await?;
+        
+        Ok(result)
+    }
+    
+    pub async fn get_all_trades(&self, limit: Option<i64>) -> Result<Vec<TradeRecord>> {
+        let limit = limit.unwrap_or(100);
+        
+        let result = self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT t.id, t.trade_id, t.worker_id, w.name as worker_name, w.address as worker_address,
+                        t.symbol, t.trade_type, t.lots, t.price, t.sl, t.tp, t.cmd, t.created_at
+                 FROM trades t
+                 JOIN workers w ON t.worker_id = w.id
+                 ORDER BY t.created_at DESC
+                 LIMIT ?1"
+            )?;
+            
+            let trades = stmt.query_map([limit], |row| {
+                Ok(TradeRecord {
+                    id: row.get(0)?,
+                    trade_id: row.get(1)?,
+                    worker_id: row.get(2)?,
+                    worker_name: row.get(3)?,
+                    worker_address: row.get(4)?,
+                    symbol: row.get(5)?,
+                    trade_type: row.get(6)?,
+                    lots: row.get(7)?,
+                    price: row.get(8)?,
+                    sl: row.get(9)?,
+                    tp: row.get(10)?,
+                    cmd: row.get(11)?,
+                    created_at: row.get(12)?,
+                })
+            })?.collect::<Result<Vec<_>, _>>()?;
+            
+            Ok(trades)
+        }).await?;
+        
+        Ok(result)
+    }
+    
+    pub async fn get_all_errors(&self, limit: Option<i64>) -> Result<Vec<ErrorRecord>> {
+        let limit = limit.unwrap_or(100);
+        
+        let result = self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT e.id, e.worker_id, w.name as worker_name, w.address as worker_address,
+                        e.severity, e.error_message, e.created_at
+                 FROM worker_errors e
+                 JOIN workers w ON e.worker_id = w.id
+                 ORDER BY e.created_at DESC
+                 LIMIT ?1"
+            )?;
+            
+            let errors = stmt.query_map([limit], |row| {
+                Ok(ErrorRecord {
+                    id: row.get(0)?,
+                    worker_id: row.get(1)?,
+                    worker_name: row.get(2)?,
+                    worker_address: row.get(3)?,
+                    severity: row.get(4)?,
+                    error_message: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })?.collect::<Result<Vec<_>, _>>()?;
+            
+            Ok(errors)
+        }).await?;
+        
+        Ok(result)
+    }
+}
+
+// API response types
+#[derive(Debug, Serialize)]
+pub struct WorkerRecord {
+    pub id: i64,
+    pub name: String,
+    pub address: String,
+    pub multiplier: f64,
+    pub state: String,
+    pub last_error: Option<String>,
+    pub latency_ms: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TradeRecord {
+    pub id: i64,
+    pub trade_id: i64,
+    pub worker_id: i64,
+    pub worker_name: String,
+    pub worker_address: String,
+    pub symbol: String,
+    pub trade_type: String,
+    pub lots: f64,
+    pub price: Option<f64>,
+    pub sl: Option<f64>,
+    pub tp: Option<f64>,
+    pub cmd: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ErrorRecord {
+    pub id: i64,
+    pub worker_id: i64,
+    pub worker_name: String,
+    pub worker_address: String,
+    pub severity: String,
+    pub error_message: String,
+    pub created_at: String,
 }

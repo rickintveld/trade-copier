@@ -1,3 +1,4 @@
+mod api;
 mod database;
 mod router;
 mod types;
@@ -61,9 +62,18 @@ async fn main() -> Result<()> {
             eprintln!("[ROUTER] Error: {}", e);
         }
     });
+    
+    // Spawn API server
+    let api_db_clone = db.clone();
+    let api_handle = tokio::spawn(async move {
+        if let Err(e) = api::run_api(api_db_clone).await {
+            eprintln!("[API] Error: {}", e);
+        }
+    });
 
     println!("✅ Trade Copier is running");
-    println!("📡 Router listening on port 5000");
+    println!("📡 TCP Router listening on port 5000");
+    println!("🌐 HTTP API listening on port 8081");
     println!("⏳ Press Ctrl+C to stop\n");
 
     // Wait for Ctrl+C
@@ -73,8 +83,9 @@ async fn main() -> Result<()> {
     // Send shutdown signal to all workers
     let _ = shutdown_tx.send(true);
     
-    // Abort router (doesn't need graceful shutdown)
+    // Abort router and API server (don't need graceful shutdown)
     router_handle.abort();
+    api_handle.abort();
     
     // Wait for all workers to finish gracefully (with timeout)
     let shutdown_timeout = tokio::time::Duration::from_secs(5);
