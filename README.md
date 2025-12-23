@@ -173,10 +173,119 @@ bool ParseAndExecuteTrade(string json_data)
 - WireGuard  
 - Nonce protection  
 
-## 11. Testing
+## 11. HTTP API
+The Trade Copier includes a REST API for monitoring and querying trade data.
+
+### API Server
+- **Port:** 3000
+- **Base URL:** `http://localhost:3000`
+- **CORS:** Enabled (permissive)
+
+### Endpoints
+
+#### Health Check
+```http
+GET /api/health
+```
+Returns API status and health information.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "status": "ok",
+    "message": "Trade Copier API is running"
+  }
+}
+```
+
+#### Get Workers
+```http
+GET /api/workers
+```
+Returns all configured workers and their current state.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "address": "0.0.0.0:5051",
+      "state": "active",
+      "connected_clients": 1,
+      "last_updated": "2024-01-01T12:00:00Z"
+    }
+  ]
+}
+```
+
+#### Get Trades
+```http
+GET /api/trades?limit=100
+```
+Returns recent trades with optional pagination.
+
+**Query Parameters:**
+- `limit` (optional, default: 100): Maximum number of trades to return
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 123456,
+      "symbol": "EURUSD",
+      "type": "buy",
+      "lots": 0.30,
+      "price": 1.08500,
+      "sl": 1.08000,
+      "tp": 1.09000,
+      "cmd": "open",
+      "timestamp": "2024-01-01T12:00:00Z"
+    }
+  ]
+}
+```
+
+#### Get Errors
+```http
+GET /api/errors?limit=100
+```
+Returns recent errors with optional pagination.
+
+**Query Parameters:**
+- `limit` (optional, default: 100): Maximum number of errors to return
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "worker_address": "0.0.0.0:5051",
+      "error_message": "Connection timeout",
+      "timestamp": "2024-01-01T12:00:00Z"
+    }
+  ]
+}
+```
+
+### Error Responses
+All endpoints return consistent error responses:
+```json
+{
+  "success": false,
+  "error": "Error message description"
+}
+```
+
+## 12. Testing
 ### Unit, integration, end-to-end tests.
 
-## 12. MetaTrader 5 Setup
+## 13. MetaTrader 5 Setup
 Before running the EAs, configure MT5 permissions:
 
 1. Open **Tools → Options → Expert Advisors**
@@ -192,7 +301,7 @@ Before running the EAs, configure MT5 permissions:
 
 Without these permissions, the EAs will fail with "Failed to connect" errors.
 
-## 13. MT5 Instance Management
+## 14. MT5 Instance Management
 
 ### Installers for Windows and macOS
 
@@ -259,14 +368,14 @@ Each instance runs in an isolated Wine prefix at `~/.wine-mt5-instance{N}`.
 
 See the respective README files in `./installers/windows/` and `./installers/mac/` for detailed documentation.
 
-## 14. Deployment
+## 15. Deployment
 Rust backend on Linux:
 ```bash
 systemctl enable trade_copier
 systemctl start trade_copier
 ```
 
-## 15. Directory Structure
+## 16. Directory Structure
 ```
 trade_copier/
  ├ src/
@@ -288,5 +397,5 @@ trade_copier/
  └ README.md
 ```
 
-## 16. Conclusion
+## 17. Conclusion
 A scalable, parallelized, low‑latency copier designed for professional environments.

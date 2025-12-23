@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
 
     println!("✅ Trade Copier is running");
     println!("📡 TCP Router listening on port 5000");
-    println!("🌐 HTTP API listening on port 8081");
+    println!("🌐 HTTP API listening on port 3000");
     println!("⏳ Press Ctrl+C to stop\n");
 
     // Wait for Ctrl+C
