@@ -77,6 +77,35 @@ CREATE TABLE trades (
 - `cmd`: Command type ("open", "close", "modify")
 - `created_at`: Timestamp when the trade was processed
 
+### Worker Errors Table
+
+```sql
+CREATE TABLE worker_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    worker_id INTEGER NOT NULL,
+    severity TEXT NOT NULL,
+    error_message TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
+);
+```
+
+**Constraints:**
+- `worker_id` is a foreign key to `workers(id)` with CASCADE delete
+- Indexes on `worker_id`, `severity`, and `created_at` for efficient querying
+
+**Fields:**
+- `id`: Auto-incrementing primary key
+- `worker_id`: Foreign key to the worker that experienced the error
+- `severity`: Error severity level ("warning", "error", or "critical")
+- `error_message`: Detailed error message
+- `created_at`: Timestamp when the error occurred
+
+**Severity Levels:**
+- **warning**: Non-critical issues that don't prevent operation (e.g., failed to save trade to database after sending)
+- **error**: Errors that affect functionality but worker can continue (e.g., connection accept failed, trade sending failed)
+- **critical**: Severe errors that cause worker to stop (e.g., failed to bind address, channel broken)
+
 ## Worker States
 
 Workers can be in one of three states:
@@ -186,6 +215,43 @@ sqlite3 trade_copier.db "SELECT t.*, w.name as worker_name FROM trades t JOIN wo
 sqlite3 trade_copier.db "SELECT w.name, COUNT(t.id) as trade_count, SUM(t.lots) as total_lots FROM workers w LEFT JOIN trades t ON w.id = t.worker_id GROUP BY w.id, w.name;"
 ```
 
+### Worker Errors Queries
+
+#### View all errors
+```bash
+sqlite3 trade_copier.db "SELECT * FROM worker_errors;"
+```
+
+#### View errors with worker information
+```bash
+sqlite3 trade_copier.db "SELECT e.*, w.name as worker_name, w.address FROM worker_errors e JOIN workers w ON e.worker_id = w.id ORDER BY e.created_at DESC;"
+```
+
+#### View errors for a specific worker
+```bash
+sqlite3 trade_copier.db "SELECT e.* FROM worker_errors e JOIN workers w ON e.worker_id = w.id WHERE w.name = 'Worker1' ORDER BY e.created_at DESC;"
+```
+
+#### View errors by severity
+```bash
+sqlite3 trade_copier.db "SELECT e.*, w.name as worker_name FROM worker_errors e JOIN workers w ON e.worker_id = w.id WHERE e.severity = 'critical' ORDER BY e.created_at DESC;"
+```
+
+#### View recent errors (last 24 hours)
+```bash
+sqlite3 trade_copier.db "SELECT e.*, w.name as worker_name FROM worker_errors e JOIN workers w ON e.worker_id = w.id WHERE e.created_at >= datetime('now', '-1 day') ORDER BY e.created_at DESC;"
+```
+
+#### Count errors by worker and severity
+```bash
+sqlite3 trade_copier.db "SELECT w.name, e.severity, COUNT(*) as error_count FROM worker_errors e JOIN workers w ON e.worker_id = w.id GROUP BY w.id, w.name, e.severity ORDER BY w.name, e.severity;"
+```
+
+#### View error frequency over time
+```bash
+sqlite3 trade_copier.db "SELECT DATE(created_at) as date, severity, COUNT(*) as count FROM worker_errors GROUP BY DATE(created_at), severity ORDER BY date DESC;"
+```
+
 ## Use Cases
 
 ### Worker Management
@@ -201,6 +267,14 @@ sqlite3 trade_copier.db "SELECT w.name, COUNT(t.id) as trade_count, SUM(t.lots) 
 4. **Performance Monitoring**: Track which workers are processing the most trades
 5. **Debugging**: Investigate trade processing issues by reviewing trade history
 6. **Compliance**: Maintain records for regulatory requirements
+
+### Error Tracking
+1. **Error History**: View complete history of all errors by worker with timestamps
+2. **Severity Analysis**: Filter and analyze errors by severity level (warning, error, critical)
+3. **Problem Identification**: Identify recurring issues and patterns in worker errors
+4. **Debugging**: Investigate worker failures with detailed error messages and timestamps
+5. **Monitoring**: Track error frequency and identify problematic workers
+6. **Alerting**: Query recent critical errors for monitoring and alerting systems
 
 ## Notes
 

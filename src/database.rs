@@ -19,6 +19,23 @@ impl WorkerState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ErrorSeverity {
+    Warning,
+    Error,
+    Critical,
+}
+
+impl ErrorSeverity {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ErrorSeverity::Warning => "warning",
+            ErrorSeverity::Error => "error",
+            ErrorSeverity::Critical => "critical",
+        }
+    }
+}
+
 pub struct Database {
     conn: Connection,
 }
@@ -80,6 +97,33 @@ impl Database {
             )?;
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_trades_cmd ON trades(cmd)",
+                [],
+            )?;
+            
+            // Create the worker_errors table for detailed error tracking
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS worker_errors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    worker_id INTEGER NOT NULL,
+                    severity TEXT NOT NULL,
+                    error_message TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            
+            // Create indexes for worker_errors table
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_worker_errors_worker_id ON worker_errors(worker_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_worker_errors_severity ON worker_errors(severity)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_worker_errors_created_at ON worker_errors(created_at)",
                 [],
             )?;
             
@@ -191,6 +235,36 @@ impl Database {
                 "INSERT INTO trades (trade_id, worker_id, symbol, trade_type, lots, price, sl, tp, cmd)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 rusqlite::params![trade_id, worker_id, &symbol, &trade_type, lots, price, sl, tp, &cmd],
+            )?;
+            Ok(())
+        }).await?;
+        
+        Ok(())
+    }
+    
+    pub async fn insert_worker_error(
+        &self,
+        address: &str,
+        severity: ErrorSeverity,
+        error_message: &str,
+    ) -> Result<()> {
+        let address = address.to_string();
+        let severity_str = severity.as_str().to_string();
+        let error_message = error_message.to_string();
+        
+        self.conn.call(move |conn| {
+            // First, get the worker_id from the address
+            let worker_id: i64 = conn.query_row(
+                "SELECT id FROM workers WHERE address = ?1",
+                rusqlite::params![&address],
+                |row| row.get(0),
+            )?;
+            
+            // Insert the error
+            conn.execute(
+                "INSERT INTO worker_errors (worker_id, severity, error_message)
+                 VALUES (?1, ?2, ?3)",
+                rusqlite::params![worker_id, &severity_str, &error_message],
             )?;
             Ok(())
         }).await?;

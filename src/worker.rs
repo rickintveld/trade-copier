@@ -5,7 +5,7 @@ use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
-use crate::database::{Database, WorkerState};
+use crate::database::{Database, WorkerState, ErrorSeverity};
 use crate::types::{Trade, SlaveConfig};
 
 pub async fn run_worker(
@@ -39,6 +39,14 @@ pub async fn run_worker(
             ).await {
                 eprintln!("[WORKER:{}] Failed to update database with error: {}", slave.name, db_err);
             }
+            // Log critical error - worker cannot start
+            if let Err(db_err) = db.insert_worker_error(
+                &slave.address,
+                ErrorSeverity::Critical,
+                &error_msg,
+            ).await {
+                eprintln!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
+            }
             return Err(e.into());
         }
     };
@@ -68,6 +76,14 @@ pub async fn run_worker(
                         Some(&error_msg),
                     ).await {
                         eprintln!("[WORKER:{}] Failed to update database: {}", name_clone, db_err);
+                    }
+                    // Log error - connection accept failed
+                    if let Err(db_err) = db_clone.insert_worker_error(
+                        &address_clone,
+                        ErrorSeverity::Error,
+                        &error_msg,
+                    ).await {
+                        eprintln!("[WORKER:{}] Failed to log error to database: {}", name_clone, db_err);
                     }
                 }
             }
@@ -110,7 +126,16 @@ pub async fn run_worker(
                             
                             // Save trade to database after successful processing
                             if let Err(e) = db.insert_trade(&slave.address, &trade).await {
-                                eprintln!("[WORKER:{}] Failed to save trade to database: {}", slave.name, e);
+                                let error_msg = format!("Failed to save trade to database: {}", e);
+                                eprintln!("[WORKER:{}] {}", slave.name, error_msg);
+                                // Log warning - trade was sent but not saved
+                                if let Err(db_err) = db.insert_worker_error(
+                                    &slave.address,
+                                    ErrorSeverity::Warning,
+                                    &error_msg,
+                                ).await {
+                                    eprintln!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
+                                }
                             }
                         }
                         Err(e) => {
@@ -122,6 +147,14 @@ pub async fn run_worker(
                                 Some(&error_msg),
                             ).await {
                                 eprintln!("[WORKER:{}] Failed to update database: {}", slave.name, db_err);
+                            }
+                            // Log error - trade sending failed
+                            if let Err(db_err) = db.insert_worker_error(
+                                &slave.address,
+                                ErrorSeverity::Error,
+                                &error_msg,
+                            ).await {
+                                eprintln!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
                             }
                         }
                     }
@@ -135,6 +168,14 @@ pub async fn run_worker(
                         Some(&error_msg),
                     ).await {
                         eprintln!("[WORKER:{}] Failed to update database: {}", slave.name, db_err);
+                    }
+                    // Log critical error - channel is broken, worker must stop
+                    if let Err(db_err) = db.insert_worker_error(
+                        &slave.address,
+                        ErrorSeverity::Critical,
+                        &error_msg,
+                    ).await {
+                        eprintln!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
                     }
                     break;
                 }
