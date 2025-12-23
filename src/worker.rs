@@ -98,15 +98,23 @@ pub async fn run_worker(
                 );
 
                     // Send trade to connected MT5 receiver
-                    if let Err(e) = send_trade(&connection, &slave.name, &trade).await {
-                        let error_msg = format!("Failed to send trade: {}", e);
-                        eprintln!("[WORKER:{}] {}", slave.name, error_msg);
-                        if let Err(db_err) = db.update_worker_state(
-                            &slave.address,
-                            WorkerState::Error,
-                            Some(&error_msg),
-                        ).await {
-                            eprintln!("[WORKER:{}] Failed to update database: {}", slave.name, db_err);
+                    match send_trade(&connection, &slave.name, &trade).await {
+                        Ok(_) => {
+                            // Save trade to database after successful processing
+                            if let Err(e) = db.insert_trade(&slave.address, &trade).await {
+                                eprintln!("[WORKER:{}] Failed to save trade to database: {}", slave.name, e);
+                            }
+                        }
+                        Err(e) => {
+                            let error_msg = format!("Failed to send trade: {}", e);
+                            eprintln!("[WORKER:{}] {}", slave.name, error_msg);
+                            if let Err(db_err) = db.update_worker_state(
+                                &slave.address,
+                                WorkerState::Error,
+                                Some(&error_msg),
+                            ).await {
+                                eprintln!("[WORKER:{}] Failed to update database: {}", slave.name, db_err);
+                            }
                         }
                     }
                 }

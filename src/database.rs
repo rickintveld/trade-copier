@@ -1,5 +1,6 @@
 use anyhow::Result;
 use tokio_rusqlite::Connection;
+use crate::types::Trade;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WorkerState {
@@ -45,6 +46,39 @@ impl Database {
             // Create an index on state for faster queries
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_workers_state ON workers(state)",
+                [],
+            )?;
+            
+            // Create the trades table with foreign key to workers
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trade_id INTEGER NOT NULL,
+                    worker_id INTEGER NOT NULL,
+                    symbol TEXT NOT NULL,
+                    trade_type TEXT NOT NULL,
+                    lots REAL NOT NULL,
+                    price REAL,
+                    sl REAL,
+                    tp REAL,
+                    cmd TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            
+            // Create indexes for trades table
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trades_worker_id ON trades(worker_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trades_trade_id ON trades(trade_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trades_cmd ON trades(cmd)",
                 [],
             )?;
             
@@ -101,6 +135,41 @@ impl Database {
                  SET state = ?1, last_error = ?2, updated_at = CURRENT_TIMESTAMP
                  WHERE address = ?3",
                 rusqlite::params![&state_str, &error, &address],
+            )?;
+            Ok(())
+        }).await?;
+        
+        Ok(())
+    }
+    
+    pub async fn insert_trade(
+        &self,
+        address: &str,
+        trade: &Trade,
+    ) -> Result<()> {
+        let address = address.to_string();
+        let trade_id = trade.id;
+        let symbol = trade.symbol.clone();
+        let trade_type = trade.trade_type.clone();
+        let lots = trade.lots;
+        let price = trade.price;
+        let sl = trade.sl;
+        let tp = trade.tp;
+        let cmd = trade.cmd.clone();
+        
+        self.conn.call(move |conn| {
+            // First, get the worker_id from the address
+            let worker_id: i64 = conn.query_row(
+                "SELECT id FROM workers WHERE address = ?1",
+                rusqlite::params![&address],
+                |row| row.get(0),
+            )?;
+            
+            // Insert the trade
+            conn.execute(
+                "INSERT INTO trades (trade_id, worker_id, symbol, trade_type, lots, price, sl, tp, cmd)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                rusqlite::params![trade_id, worker_id, &symbol, &trade_type, lots, price, sl, tp, &cmd],
             )?;
             Ok(())
         }).await?;
