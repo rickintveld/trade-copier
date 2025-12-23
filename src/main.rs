@@ -1,18 +1,26 @@
+mod database;
 mod router;
 mod types;
 mod worker;
 
 use anyhow::Result;
 use std::fs;
-use tokio::sync::broadcast;
+use std::sync::Arc;
+use tokio::sync::{broadcast, watch};
+use database::Database;
 use types::{Config, Trade};
 
 const BROADCAST_CHANNEL_SIZE: usize = 1024;
 const CONFIG_PATH: &str = "config/slaves.yaml";
+const DB_PATH: &str = "trade_copier.db";
 
 #[tokio::main]
 async fn main() -> Result<()> {
     println!("🚀 Trade Copier Starting...");
+
+    // Initialize database
+    let db = Arc::new(Database::new(DB_PATH).await?);
+    println!("💾 Database initialized at {}", DB_PATH);
 
     // Load configuration
     let config_content = fs::read_to_string(CONFIG_PATH)?;
@@ -26,15 +34,21 @@ async fn main() -> Result<()> {
         );
     }
 
-    // Create broadcast channel
+    // Create broadcast channel for trades
     let (tx, _rx) = broadcast::channel::<Trade>(BROADCAST_CHANNEL_SIZE);
+    
+    // Create shutdown signal channel
+    let (shutdown_tx, _shutdown_rx) = watch::channel(false);
 
     // Spawn workers for each slave
     let mut worker_handles = vec![];
+    let slaves = config.slaves.clone();
     for slave in config.slaves {
         let rx = tx.subscribe();
+        let db_clone = db.clone();
+        let shutdown_rx = shutdown_tx.subscribe();
         let handle = tokio::spawn(async move {
-            if let Err(e) = worker::run_worker(slave.clone(), rx).await {
+            if let Err(e) = worker::run_worker(slave.clone(), rx, db_clone, shutdown_rx).await {
                 eprintln!("[WORKER:{}] Error: {}", slave.name, e);
             }
         });
@@ -56,10 +70,34 @@ async fn main() -> Result<()> {
     tokio::signal::ctrl_c().await?;
     println!("\n🛑 Shutting down...");
 
-    // Cleanup (tasks will be aborted when handles are dropped)
+    // Send shutdown signal to all workers
+    let _ = shutdown_tx.send(true);
+    
+    // Abort router (doesn't need graceful shutdown)
     router_handle.abort();
-    for handle in worker_handles {
-        handle.abort();
+    
+    // Wait for all workers to finish gracefully (with timeout)
+    let shutdown_timeout = tokio::time::Duration::from_secs(5);
+    for (handle, slave) in worker_handles.into_iter().zip(slaves.iter()) {
+        match tokio::time::timeout(shutdown_timeout, handle).await {
+            Ok(Ok(())) => println!("[WORKER:{}] Shutdown complete", slave.name),
+            Ok(Err(e)) => eprintln!("[WORKER:{}] Join error: {}", slave.name, e),
+            Err(_) => {
+                eprintln!("[WORKER:{}] Shutdown timeout, forcing abort", slave.name);
+                // Worker will be aborted when handle is dropped
+            }
+        }
+    }
+
+    // Update any remaining workers to deactivated state
+    for slave in &slaves {
+        if let Err(e) = db.update_worker_state(
+            &slave.address,
+            database::WorkerState::Deactivated,
+            None,
+        ).await {
+            eprintln!("[MAIN] Failed to update final state for {}: {}", slave.name, e);
+        }
     }
 
     println!("👋 Trade Copier stopped");

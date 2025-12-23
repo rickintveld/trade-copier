@@ -28,7 +28,7 @@ pub struct SlaveConfig {
     pub multiplier: f64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub slaves: Vec<SlaveConfig>,
 }

@@ -18,3 +18,7 @@ Thumbs.db
 # MetaTrader
 *.ex5
 *.log
+
+# Database
+trade_copier.db
+trade_copier.db-*
