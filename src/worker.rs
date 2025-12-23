@@ -1,8 +1,9 @@
 use anyhow::Result;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, watch};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Mutex;
 use crate::database::{Database, WorkerState};
 use crate::types::{Trade, SlaveConfig};
@@ -97,9 +98,16 @@ pub async fn run_worker(
                     slave.name, trade.lots, slave.multiplier
                 );
 
-                    // Send trade to connected MT5 receiver
+                    // Send trade to connected MT5 receiver and measure latency
                     match send_trade(&connection, &slave.name, &trade).await {
-                        Ok(_) => {
+                        Ok(latency_ms) => {
+                            println!("[WORKER:{}] Trade sent successfully, latency: {}ms", slave.name, latency_ms);
+                            
+                            // Update latency in database
+                            if let Err(e) = db.update_worker_latency(&slave.address, latency_ms).await {
+                                eprintln!("[WORKER:{}] Failed to update latency in database: {}", slave.name, e);
+                            }
+                            
                             // Save trade to database after successful processing
                             if let Err(e) = db.insert_trade(&slave.address, &trade).await {
                                 eprintln!("[WORKER:{}] Failed to save trade to database: {}", slave.name, e);
@@ -151,7 +159,7 @@ async fn send_trade(
     connection: &Arc<Mutex<Option<tokio::net::TcpStream>>>,
     worker_name: &str,
     trade: &Trade,
-) -> Result<()> {
+) -> Result<u64> {
     let mut conn_guard = connection.lock().await;
     
     if let Some(stream) = conn_guard.as_mut() {
@@ -159,10 +167,37 @@ async fn send_trade(
         let message = format!("{}
 ", trade_json);
         
+        // Start timing
+        let start = Instant::now();
+        
+        // Send the trade
         match stream.write_all(message.as_bytes()).await {
             Ok(_) => {
                 println!("[WORKER:{}] Sent trade: {}", worker_name, trade_json);
-                Ok(())
+                
+                // Wait for acknowledgment from MT5 receiver
+                let mut reader = BufReader::new(stream);
+                let mut ack_line = String::new();
+                
+                match reader.read_line(&mut ack_line).await {
+                    Ok(0) => {
+                        // Connection closed
+                        eprintln!("[WORKER:{}] Connection closed while waiting for acknowledgment", worker_name);
+                        *conn_guard = None;
+                        Err(anyhow::anyhow!("Connection closed"))
+                    }
+                    Ok(_) => {
+                        // Calculate latency in milliseconds
+                        let latency_ms = start.elapsed().as_millis() as u64;
+                        println!("[WORKER:{}] Received acknowledgment: {}", worker_name, ack_line.trim());
+                        Ok(latency_ms)
+                    }
+                    Err(e) => {
+                        eprintln!("[WORKER:{}] Read error: {}", worker_name, e);
+                        *conn_guard = None;
+                        Err(anyhow::anyhow!("Failed to read acknowledgment: {}", e))
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("[WORKER:{}] Write error, connection lost: {}", worker_name, e);

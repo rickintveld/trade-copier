@@ -20,10 +20,22 @@ CREATE TABLE workers (
     multiplier REAL NOT NULL,
     state TEXT NOT NULL,
     last_error TEXT,
+    latency_ms INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
+
+**Fields:**
+- `id`: Auto-incrementing primary key
+- `name`: Worker name from configuration
+- `address`: TCP address where the worker listens (e.g., "127.0.0.1:5001")
+- `multiplier`: Risk multiplier applied to trade volumes
+- `state`: Current worker state ("activated", "error", or "deactivated")
+- `last_error`: Most recent error message (if any)
+- `latency_ms`: Last measured round-trip latency to slave MT5 in milliseconds
+- `created_at`: Timestamp when worker was first created
+- `updated_at`: Timestamp when worker was last updated
 
 **Constraints:**
 - `address` is UNIQUE - prevents duplicate worker addresses
@@ -80,6 +92,13 @@ When a worker starts:
 - The worker is registered in the database (or updated if address already exists)
 - State is set to `activated`
 - `last_error` is cleared
+- `latency_ms` is initially NULL
+- `updated_at` timestamp is set
+
+### On Trade Processing
+When a worker successfully sends a trade:
+- Round-trip latency is measured from sending the trade until receiving acknowledgment from the MT5 receiver
+- `latency_ms` is updated with the measured latency in milliseconds
 - `updated_at` timestamp is set
 
 ### On Error
@@ -92,6 +111,7 @@ Errors are tracked for:
 - Failed to bind to address
 - Failed to accept connection
 - Failed to send trade
+- Failed to read acknowledgment from MT5 receiver
 - Channel errors
 
 ### On Shutdown
@@ -122,6 +142,11 @@ sqlite3 trade_copier.db "SELECT name, address, state, last_error FROM workers WH
 #### View worker history
 ```bash
 sqlite3 trade_copier.db "SELECT name, address, state, updated_at FROM workers ORDER BY updated_at DESC;"
+```
+
+#### View worker latency
+```bash
+sqlite3 trade_copier.db "SELECT name, address, latency_ms, updated_at FROM workers WHERE state = 'activated' ORDER BY latency_ms ASC;"
 ```
 
 ### Trades Queries

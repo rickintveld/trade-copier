@@ -37,6 +37,7 @@ impl Database {
                     multiplier REAL NOT NULL,
                     state TEXT NOT NULL,
                     last_error TEXT,
+                    latency_ms INTEGER,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )",
@@ -135,6 +136,26 @@ impl Database {
                  SET state = ?1, last_error = ?2, updated_at = CURRENT_TIMESTAMP
                  WHERE address = ?3",
                 rusqlite::params![&state_str, &error, &address],
+            )?;
+            Ok(())
+        }).await?;
+        
+        Ok(())
+    }
+    
+    pub async fn update_worker_latency(
+        &self,
+        address: &str,
+        latency_ms: u64,
+    ) -> Result<()> {
+        let address = address.to_string();
+        
+        self.conn.call(move |conn| {
+            conn.execute(
+                "UPDATE workers 
+                 SET latency_ms = ?1, updated_at = CURRENT_TIMESTAMP
+                 WHERE address = ?2",
+                rusqlite::params![latency_ms, &address],
             )?;
             Ok(())
         }).await?;
