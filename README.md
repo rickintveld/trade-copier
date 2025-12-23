@@ -275,6 +275,76 @@ Returns recent errors with optional pagination.
 }
 ```
 
+#### Get System Metrics
+```http
+GET /api/system/metrics
+```
+Returns the latest system metrics snapshot.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "router_status": "online",
+    "router_port": 5000,
+    "copier_active": true,
+    "total_workers": 3,
+    "active_workers": 2,
+    "uptime_seconds": 3600,
+    "created_at": "2024-01-01T12:00:00Z"
+  }
+}
+```
+
+#### Get System Metrics History
+```http
+GET /api/system/metrics/history?limit=100
+```
+Returns historical system metrics with optional pagination.
+
+**Query Parameters:**
+- `limit` (optional, default: 100): Maximum number of metrics snapshots to return
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 2,
+      "router_status": "online",
+      "router_port": 5000,
+      "copier_active": true,
+      "total_workers": 3,
+      "active_workers": 3,
+      "uptime_seconds": 3630,
+      "created_at": "2024-01-01T12:30:00Z"
+    },
+    {
+      "id": 1,
+      "router_status": "online",
+      "router_port": 5000,
+      "copier_active": true,
+      "total_workers": 3,
+      "active_workers": 2,
+      "uptime_seconds": 3600,
+      "created_at": "2024-01-01T12:00:00Z"
+    }
+  ]
+}
+```
+
+### System Metrics Collection
+The trade copier automatically collects system metrics every 30 seconds, including:
+- **Router status** - Whether the router is online/offline
+- **Router port** - The port the router listens on (5000)
+- **Copier active** - Whether the trade copier is active
+- **Total workers** - Number of configured workers
+- **Active workers** - Number of workers currently in "activated" state
+- **Uptime** - System uptime in seconds
+
 ### Error Responses
 All endpoints return consistent error responses:
 ```json

@@ -7,6 +7,7 @@ mod worker;
 use anyhow::Result;
 use std::fs;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::{broadcast, watch};
 use database::Database;
 use types::{Config, Trade};
@@ -22,6 +23,9 @@ async fn main() -> Result<()> {
     // Initialize database
     let db = Arc::new(Database::new(DB_PATH).await?);
     println!("💾 Database initialized at {}", DB_PATH);
+    
+    // Track start time for uptime calculation
+    let start_time = Instant::now();
 
     // Load configuration
     let config_content = fs::read_to_string(CONFIG_PATH)?;
@@ -70,6 +74,36 @@ async fn main() -> Result<()> {
             eprintln!("[API] Error: {}", e);
         }
     });
+    
+    // Spawn system metrics collector (runs every 30 seconds)
+    let metrics_db = db.clone();
+    let total_workers = slaves.len() as i32;
+    let metrics_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            
+            let uptime_seconds = start_time.elapsed().as_secs();
+            
+            // Count active workers from database
+            let active_workers = match metrics_db.get_all_workers().await {
+                Ok(workers) => workers.iter().filter(|w| w.state == "activated").count() as i32,
+                Err(_) => 0,
+            };
+            
+            // Insert system metrics snapshot
+            if let Err(e) = metrics_db.insert_system_metrics(
+                "online",
+                5000,
+                true,
+                total_workers,
+                active_workers,
+                uptime_seconds,
+            ).await {
+                eprintln!("[METRICS] Failed to insert system metrics: {}", e);
+            }
+        }
+    });
 
     println!("✅ Trade Copier is running");
     println!("📡 TCP Router listening on port 5000");
@@ -83,9 +117,23 @@ async fn main() -> Result<()> {
     // Send shutdown signal to all workers
     let _ = shutdown_tx.send(true);
     
-    // Abort router and API server (don't need graceful shutdown)
+    // Abort router, API server, and metrics collector (don't need graceful shutdown)
     router_handle.abort();
     api_handle.abort();
+    metrics_handle.abort();
+    
+    // Insert final system metrics snapshot showing offline status
+    let uptime_seconds = start_time.elapsed().as_secs();
+    if let Err(e) = db.insert_system_metrics(
+        "offline",
+        5000,
+        false,
+        slaves.len() as i32,
+        0,
+        uptime_seconds,
+    ).await {
+        eprintln!("[MAIN] Failed to insert shutdown metrics: {}", e);
+    }
     
     // Wait for all workers to finish gracefully (with timeout)
     let shutdown_timeout = tokio::time::Duration::from_secs(5);

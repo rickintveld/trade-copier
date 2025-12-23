@@ -128,6 +128,27 @@ impl Database {
                 [],
             )?;
             
+            // Create the system_metrics table for tracking router and copier state
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS system_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    router_status TEXT NOT NULL,
+                    router_port INTEGER NOT NULL,
+                    copier_active BOOLEAN NOT NULL,
+                    total_workers INTEGER NOT NULL,
+                    active_workers INTEGER NOT NULL,
+                    uptime_seconds INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )",
+                [],
+            )?;
+            
+            // Create index for system_metrics table
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_system_metrics_created_at ON system_metrics(created_at)",
+                [],
+            )?;
+            
             Ok(())
         }).await?;
         
@@ -273,6 +294,30 @@ impl Database {
         Ok(())
     }
     
+    pub async fn insert_system_metrics(
+        &self,
+        router_status: &str,
+        router_port: u16,
+        copier_active: bool,
+        total_workers: i32,
+        active_workers: i32,
+        uptime_seconds: u64,
+    ) -> Result<()> {
+        let router_status = router_status.to_string();
+        
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT INTO system_metrics 
+                 (router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![&router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds as i64],
+            )?;
+            Ok(())
+        }).await?;
+        
+        Ok(())
+    }
+    
     // Query methods for API endpoints
     pub async fn get_all_workers(&self) -> Result<Vec<WorkerRecord>> {
         let result = self.conn.call(|conn| {
@@ -368,6 +413,67 @@ impl Database {
         
         Ok(result)
     }
+    
+    pub async fn get_latest_system_metrics(&self) -> Result<Option<SystemMetricsRecord>> {
+        let result = self.conn.call(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, router_status, router_port, copier_active, 
+                        total_workers, active_workers, uptime_seconds, created_at
+                 FROM system_metrics
+                 ORDER BY created_at DESC
+                 LIMIT 1"
+            )?;
+            
+            let mut rows = stmt.query([])?;
+            if let Some(row) = rows.next()? {
+                Ok(Some(SystemMetricsRecord {
+                    id: row.get(0)?,
+                    router_status: row.get(1)?,
+                    router_port: row.get(2)?,
+                    copier_active: row.get(3)?,
+                    total_workers: row.get(4)?,
+                    active_workers: row.get(5)?,
+                    uptime_seconds: row.get(6)?,
+                    created_at: row.get(7)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        }).await?;
+        
+        Ok(result)
+    }
+    
+    pub async fn get_system_metrics_history(&self, limit: Option<i64>) -> Result<Vec<SystemMetricsRecord>> {
+        let limit = limit.unwrap_or(100);
+        
+        let result = self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, router_status, router_port, copier_active, 
+                        total_workers, active_workers, uptime_seconds, created_at
+                 FROM system_metrics
+                 ORDER BY created_at DESC
+                 LIMIT ?1"
+            )?;
+            
+            let metrics = stmt.query_map([limit], |row| {
+                Ok(SystemMetricsRecord {
+                    id: row.get(0)?,
+                    router_status: row.get(1)?,
+                    router_port: row.get(2)?,
+                    copier_active: row.get(3)?,
+                    total_workers: row.get(4)?,
+                    active_workers: row.get(5)?,
+                    uptime_seconds: row.get(6)?,
+                    created_at: row.get(7)?,
+                })
+            })?.collect::<Result<Vec<_>, _>>()?;
+            
+            Ok(metrics)
+        }).await?;
+        
+        Ok(result)
+    }
 }
 
 // API response types
@@ -409,5 +515,17 @@ pub struct ErrorRecord {
     pub worker_address: String,
     pub severity: String,
     pub error_message: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SystemMetricsRecord {
+    pub id: i64,
+    pub router_status: String,
+    pub router_port: i64,
+    pub copier_active: bool,
+    pub total_workers: i64,
+    pub active_workers: i64,
+    pub uptime_seconds: i64,
     pub created_at: String,
 }
