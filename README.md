@@ -64,15 +64,17 @@ slaves:
 ## 4. Rust Project Structure
 ```
 src/
- ├ main.rs
- ├ router.rs
- ├ worker.rs
- ├ types.rs
+ ├ main.rs       # Entry point, spawns router, workers, and API
+ ├ router.rs     # TCP server receiving trades from master EA
+ ├ worker.rs     # TCP servers broadcasting to slave EAs
+ ├ api.rs        # HTTP REST API for monitoring
+ ├ database.rs   # SQLite persistence for trades and errors
+ ├ types.rs      # Shared data structures
 config/
- └ slaves.yaml
+ └ slaves.yaml   # Worker configuration
 mql5/
- ├ signal_sender.mq5
- └ signal_receiver.mq5
+ ├ signal_sender.mq5   # Master EA
+ └ signal_receiver.mq5 # Slave EA
 ```
 
 ## 5. Rust Router (Broadcast Pattern)
@@ -379,21 +381,24 @@ systemctl start trade_copier
 ```
 trade_copier/
  ├ src/
- │  ├ main.rs
- │  ├ router.rs
- │  ├ worker.rs
- │  └ types.rs
+ │  ├ main.rs       # Entry point, spawns router, workers, and API
+ │  ├ router.rs     # TCP server receiving trades from master EA
+ │  ├ worker.rs     # TCP servers broadcasting to slave EAs
+ │  ├ api.rs        # HTTP REST API for monitoring
+ │  ├ database.rs   # SQLite persistence for trades and errors
+ │  └ types.rs      # Shared data structures
  ├ config/
- │  └ slaves.yaml
+ │  └ slaves.yaml   # Worker configuration
  ├ mql5/
- │  ├ signal_sender.mq5
- │  └ signal_receiver.mq5
+ │  ├ signal_sender.mq5   # Master EA
+ │  └ signal_receiver.mq5 # Slave EA
  ├ installers/
  │  ├ windows/    # MT5 manager for Windows
  │  └ mac/        # MT5 manager for macOS
  ├ docs/
  ├ Cargo.toml
  ├ Cargo.lock
+ ├ trade_copier.db  # SQLite database (created at runtime)
  └ README.md
 ```
 
