@@ -116,15 +116,15 @@ pub async fn run_worker(
 
                     // Send trade to connected MT5 receiver and measure latency
                     match send_trade(&connection, &slave.name, &trade).await {
-                        Ok(latency_ms) => {
-                            println!("[WORKER:{}] Trade sent successfully, latency: {}ms", slave.name, latency_ms);
+                        Ok(latency_us) => {
+                            println!("[WORKER:{}] Trade sent successfully, latency: {}µs", slave.name, latency_us);
                             
                             // Spawn background task to update latency (non-blocking)
                             let db_clone = db.clone();
                             let address_clone = slave.address.clone();
                             let name_clone = slave.name.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = db_clone.update_worker_latency(&address_clone, latency_ms).await {
+                                if let Err(e) = db_clone.update_worker_latency(&address_clone, latency_us).await {
                                     eprintln!("[WORKER:{}] Failed to update latency in database: {}", name_clone, e);
                                 }
                             });
@@ -239,10 +239,10 @@ async fn send_trade(
                         Err(anyhow::anyhow!("Connection closed"))
                     }
                     Ok(_) => {
-                        // Calculate latency in milliseconds
-                        let latency_ms = start.elapsed().as_millis() as u64;
+                        // Calculate latency in microseconds
+                        let latency_us = start.elapsed().as_micros() as u64;
                         println!("[WORKER:{}] Received acknowledgment: {}", worker_name, ack_line.trim());
-                        Ok(latency_ms)
+                        Ok(latency_us)
                     }
                     Err(e) => {
                         eprintln!("[WORKER:{}] Read error: {}", worker_name, e);

@@ -49,7 +49,6 @@ pub async fn run_api(db: Arc<Database>) -> Result<()> {
         .route("/api/trades", get(get_trades))
         .route("/api/errors", get(get_errors))
         .route("/api/system/metrics", get(get_system_metrics))
-        .route("/api/system/metrics/history", get(get_system_metrics_history))
         .route("/api/health", get(health_check))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -132,28 +131,7 @@ async fn get_errors(
 }
 
 async fn get_system_metrics(State(state): State<AppState>) -> impl IntoResponse {
-    match state.db.get_latest_system_metrics().await {
-        Ok(metrics) => Json(ApiResponse {
-            success: true,
-            data: metrics,
-        })
-        .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError {
-                success: false,
-                error: e.to_string(),
-            }),
-        )
-            .into_response(),
-    }
-}
-
-async fn get_system_metrics_history(
-    State(state): State<AppState>,
-    Query(params): Query<PaginationParams>,
-) -> impl IntoResponse {
-    match state.db.get_system_metrics_history(Some(params.limit)).await {
+    match state.db.get_system_metrics().await {
         Ok(metrics) => Json(ApiResponse {
             success: true,
             data: metrics,

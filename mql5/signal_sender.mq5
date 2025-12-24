@@ -13,6 +13,8 @@ input string RouterIP = "127.0.0.1";  // Rust Router IP
 input int RouterPort = 5000;           // Rust Router Port
 
 int socketHandle = INVALID_SOCKET;
+bool g_connection_lost = false;
+datetime g_last_send_time = 0;
 
 // Position tracking: maps position ticket to trade_id
 ulong g_position_tickets[];
@@ -32,6 +34,11 @@ void AddPositionTracking(ulong ticket, ulong trade_id, double sl, double tp);
 void RemovePositionTracking(ulong ticket);
 void CheckPositionModifications();
 
+// Connection management
+bool ConnectToRouter();
+void DisconnectFromRouter();
+bool EnsureConnection();
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -42,32 +49,15 @@ int OnInit()
    ArrayResize(g_trade_ids, 0);
    ArrayResize(g_position_states, 0);
    g_tracking_count = 0;
+   g_connection_lost = false;
+   g_last_send_time = 0;
    
    Print("[SENDER] Trade Copier Master EA started");
    Print("[SENDER] Sending signals to ", RouterIP, ":", RouterPort);
    
-   // Initialize TCP socket
-   socketHandle = SocketCreate();
-   if(socketHandle == INVALID_SOCKET)
-   {
-      int error = GetLastError();
-      Print("[SENDER] ERROR: Failed to create socket, error code: ", error);
+   if(!ConnectToRouter())
       return INIT_FAILED;
-   }
    
-   Print("[SENDER] Socket created successfully, handle: ", socketHandle);
-   
-   // Connect to router
-   if(!SocketConnect(socketHandle, RouterIP, RouterPort, 1000))
-   {
-      int error = GetLastError();
-      Print("[SENDER] ERROR: Failed to connect to router at ", RouterIP, ":", RouterPort, ", error code: ", error);
-      Print("[SENDER] Common error codes: 5002=DLL not allowed, 4014=Internal error, 5200=Socket error");
-      SocketClose(socketHandle);
-      return INIT_FAILED;
-   }
-   
-   Print("[SENDER] Connected to router successfully (TCP)");
    return INIT_SUCCEEDED;
 }
 
@@ -76,6 +66,19 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   // Reconnect if connection lost
+   if(g_connection_lost)
+   {
+      datetime current_time = TimeLocal();
+      if(current_time - g_last_send_time > 5) // Try reconnect every 5 seconds
+      {
+         Print("[SENDER] Attempting to reconnect...");
+         DisconnectFromRouter();
+         g_connection_lost = !ConnectToRouter();
+         g_last_send_time = current_time;
+      }
+   }
+   
    CheckPositionModifications();
 }
 
@@ -84,9 +87,7 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   if(socketHandle != INVALID_SOCKET)
-      SocketClose(socketHandle);
-   
+   DisconnectFromRouter();
    Print("[SENDER] Master EA stopped");
 }
 
@@ -203,6 +204,12 @@ void CheckPositionModifications()
 //+------------------------------------------------------------------+
 void SendTradeSignal(string json)
 {
+   if(!EnsureConnection())
+   {
+      Print("[SENDER] ERROR: Cannot send signal, no connection to router");
+      return;
+   }
+   
    Print("[SENDER] Sending: ", json);
    
    json += "\n";
@@ -212,7 +219,19 @@ void SendTradeSignal(string json)
    
    int sent = SocketSend(socketHandle, data, len);
    if(sent <= 0)
-      Print("[SENDER] ERROR: Send failed, error: ", GetLastError());
+   {
+      int error = GetLastError();
+      Print("[SENDER] ERROR: Send failed, error: ", error);
+      if(error == 5273) // ERR_NETSOCKET_IO_ERROR
+      {
+         Print("[SENDER] Connection lost (ERR_NETSOCKET_IO_ERROR). Will attempt reconnect.");
+         g_connection_lost = true;
+      }
+   }
+   else
+   {
+      g_last_send_time = TimeLocal();
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -261,4 +280,61 @@ void RemovePositionTracking(ulong ticket)
    ArrayResize(g_position_tickets, g_tracking_count);
    ArrayResize(g_trade_ids, g_tracking_count);
    ArrayResize(g_position_states, g_tracking_count);
+}
+
+//+------------------------------------------------------------------+
+//| Connection management functions                                  |
+//+------------------------------------------------------------------+
+bool ConnectToRouter()
+{
+   // Initialize TCP socket
+   socketHandle = SocketCreate();
+   if(socketHandle == INVALID_SOCKET)
+   {
+      int error = GetLastError();
+      Print("[SENDER] ERROR: Failed to create socket, error code: ", error);
+      return false;
+   }
+   
+   Print("[SENDER] Socket created successfully, handle: ", socketHandle);
+   
+   // Connect to router
+   if(!SocketConnect(socketHandle, RouterIP, RouterPort, 1000))
+   {
+      int error = GetLastError();
+      Print("[SENDER] ERROR: Failed to connect to router at ", RouterIP, ":", RouterPort, ", error code: ", error);
+      Print("[SENDER] Common error codes: 5002=DLL not allowed, 4014=Internal error, 5200=Socket error");
+      SocketClose(socketHandle);
+      socketHandle = INVALID_SOCKET;
+      return false;
+   }
+   
+   Print("[SENDER] Connected to router successfully (TCP)");
+   g_connection_lost = false;
+   g_last_send_time = TimeLocal();
+   return true;
+}
+
+void DisconnectFromRouter()
+{
+   if(socketHandle != INVALID_SOCKET)
+   {
+      SocketClose(socketHandle);
+      socketHandle = INVALID_SOCKET;
+      Print("[SENDER] Disconnected from router");
+   }
+}
+
+bool EnsureConnection()
+{
+   if(g_connection_lost)
+      return false;
+      
+   if(socketHandle == INVALID_SOCKET)
+   {
+      g_connection_lost = true;
+      return false;
+   }
+   
+   return true;
 }

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 pub struct Trade {
     pub id: u64,
     pub symbol: String,
-    #[serde(rename = "type")]
-    pub trade_type: String, // "buy" or "sell"
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub trade_type: Option<String>, // "buy" or "sell" (not needed for close/modify)
     pub lots: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub price: Option<f64>,

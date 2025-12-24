@@ -55,7 +55,7 @@ impl Database {
                     multiplier REAL NOT NULL,
                     state TEXT NOT NULL,
                     last_error TEXT,
-                    latency_ms INTEGER,
+                    latency_us INTEGER,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )",
@@ -75,7 +75,7 @@ impl Database {
                     trade_id INTEGER NOT NULL,
                     worker_id INTEGER NOT NULL,
                     symbol TEXT NOT NULL,
-                    trade_type TEXT NOT NULL,
+                    trade_type TEXT,
                     lots REAL NOT NULL,
                     price REAL,
                     sl REAL,
@@ -129,23 +129,18 @@ impl Database {
             )?;
             
             // Create the system_metrics table for tracking router and copier state
+            // Single row table - always id=1
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS system_metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
                     router_status TEXT NOT NULL,
                     router_port INTEGER NOT NULL,
                     copier_active BOOLEAN NOT NULL,
                     total_workers INTEGER NOT NULL,
                     active_workers INTEGER NOT NULL,
                     uptime_seconds INTEGER NOT NULL DEFAULT 0,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )",
-                [],
-            )?;
-            
-            // Create index for system_metrics table
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_system_metrics_created_at ON system_metrics(created_at)",
                 [],
             )?;
             
@@ -212,16 +207,16 @@ impl Database {
     pub async fn update_worker_latency(
         &self,
         address: &str,
-        latency_ms: u64,
+        latency_us: u64,
     ) -> Result<()> {
         let address = address.to_string();
         
         self.conn.call(move |conn| {
             conn.execute(
                 "UPDATE workers 
-                 SET latency_ms = ?1, updated_at = CURRENT_TIMESTAMP
+                 SET latency_us = ?1, updated_at = CURRENT_TIMESTAMP
                  WHERE address = ?2",
-                rusqlite::params![latency_ms, &address],
+                rusqlite::params![latency_us, &address],
             )?;
             Ok(())
         }).await?;
@@ -294,7 +289,7 @@ impl Database {
         Ok(())
     }
     
-    pub async fn insert_system_metrics(
+    pub async fn upsert_system_metrics(
         &self,
         router_status: &str,
         router_port: u16,
@@ -308,8 +303,16 @@ impl Database {
         self.conn.call(move |conn| {
             conn.execute(
                 "INSERT INTO system_metrics 
-                 (router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 (id, router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds, updated_at)
+                 VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)
+                 ON CONFLICT(id) DO UPDATE SET
+                    router_status = excluded.router_status,
+                    router_port = excluded.router_port,
+                    copier_active = excluded.copier_active,
+                    total_workers = excluded.total_workers,
+                    active_workers = excluded.active_workers,
+                    uptime_seconds = excluded.uptime_seconds,
+                    updated_at = CURRENT_TIMESTAMP",
                 rusqlite::params![&router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds as i64],
             )?;
             Ok(())
@@ -322,8 +325,8 @@ impl Database {
     pub async fn get_all_workers(&self) -> Result<Vec<WorkerRecord>> {
         let result = self.conn.call(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, address, multiplier, state, last_error, latency_ms, created_at, updated_at 
-                 FROM workers ORDER BY created_at DESC"
+                "SELECT id, name, address, multiplier, state, last_error, latency_us, created_at, updated_at 
+                 FROM workers ORDER BY address, created_at DESC"
             )?;
             
             let workers = stmt.query_map([], |row| {
@@ -334,7 +337,7 @@ impl Database {
                     multiplier: row.get(3)?,
                     state: row.get(4)?,
                     last_error: row.get(5)?,
-                    latency_ms: row.get(6)?,
+                    latency_us: row.get(6)?,
                     created_at: row.get(7)?,
                     updated_at: row.get(8)?,
                 })
@@ -414,14 +417,13 @@ impl Database {
         Ok(result)
     }
     
-    pub async fn get_latest_system_metrics(&self) -> Result<Option<SystemMetricsRecord>> {
+    pub async fn get_system_metrics(&self) -> Result<Option<SystemMetricsRecord>> {
         let result = self.conn.call(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, router_status, router_port, copier_active, 
-                        total_workers, active_workers, uptime_seconds, created_at
+                        total_workers, active_workers, uptime_seconds, updated_at
                  FROM system_metrics
-                 ORDER BY created_at DESC
-                 LIMIT 1"
+                 WHERE id = 1"
             )?;
             
             let mut rows = stmt.query([])?;
@@ -434,7 +436,7 @@ impl Database {
                     total_workers: row.get(4)?,
                     active_workers: row.get(5)?,
                     uptime_seconds: row.get(6)?,
-                    created_at: row.get(7)?,
+                    updated_at: row.get(7)?,
                 }))
             } else {
                 Ok(None)
@@ -444,36 +446,6 @@ impl Database {
         Ok(result)
     }
     
-    pub async fn get_system_metrics_history(&self, limit: Option<i64>) -> Result<Vec<SystemMetricsRecord>> {
-        let limit = limit.unwrap_or(100);
-        
-        let result = self.conn.call(move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id, router_status, router_port, copier_active, 
-                        total_workers, active_workers, uptime_seconds, created_at
-                 FROM system_metrics
-                 ORDER BY created_at DESC
-                 LIMIT ?1"
-            )?;
-            
-            let metrics = stmt.query_map([limit], |row| {
-                Ok(SystemMetricsRecord {
-                    id: row.get(0)?,
-                    router_status: row.get(1)?,
-                    router_port: row.get(2)?,
-                    copier_active: row.get(3)?,
-                    total_workers: row.get(4)?,
-                    active_workers: row.get(5)?,
-                    uptime_seconds: row.get(6)?,
-                    created_at: row.get(7)?,
-                })
-            })?.collect::<Result<Vec<_>, _>>()?;
-            
-            Ok(metrics)
-        }).await?;
-        
-        Ok(result)
-    }
 }
 
 // API response types
@@ -485,7 +457,7 @@ pub struct WorkerRecord {
     pub multiplier: f64,
     pub state: String,
     pub last_error: Option<String>,
-    pub latency_ms: Option<i64>,
+    pub latency_us: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -498,7 +470,7 @@ pub struct TradeRecord {
     pub worker_name: String,
     pub worker_address: String,
     pub symbol: String,
-    pub trade_type: String,
+    pub trade_type: Option<String>,
     pub lots: f64,
     pub price: Option<f64>,
     pub sl: Option<f64>,
@@ -527,5 +499,5 @@ pub struct SystemMetricsRecord {
     pub total_workers: i64,
     pub active_workers: i64,
     pub uptime_seconds: i64,
-    pub created_at: String,
+    pub updated_at: String,
 }

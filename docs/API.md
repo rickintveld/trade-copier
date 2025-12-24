@@ -51,7 +51,7 @@ Retrieve all configured workers with their current status.
       "multiplier": 1.0,
       "state": "activated",
       "last_error": null,
-      "latency_ms": 45,
+      "latency_us": 45,
       "created_at": "2024-12-23 10:30:00",
       "updated_at": "2024-12-23 10:35:00"
     }

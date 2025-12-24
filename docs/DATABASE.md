@@ -20,7 +20,7 @@ CREATE TABLE workers (
     multiplier REAL NOT NULL,
     state TEXT NOT NULL,
     last_error TEXT,
-    latency_ms INTEGER,
+    latency_us INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -33,7 +33,7 @@ CREATE TABLE workers (
 - `multiplier`: Risk multiplier applied to trade volumes
 - `state`: Current worker state ("activated", "error", or "deactivated")
 - `last_error`: Most recent error message (if any)
-- `latency_ms`: Last measured round-trip latency to slave MT5 in milliseconds
+- `latency_us`: Last measured round-trip latency to slave MT5 in milliseconds
 - `created_at`: Timestamp when worker was first created
 - `updated_at`: Timestamp when worker was last updated
 
@@ -121,13 +121,13 @@ When a worker starts:
 - The worker is registered in the database (or updated if address already exists)
 - State is set to `activated`
 - `last_error` is cleared
-- `latency_ms` is initially NULL
+- `latency_us` is initially NULL
 - `updated_at` timestamp is set
 
 ### On Trade Processing
 When a worker successfully sends a trade:
 - Round-trip latency is measured from sending the trade until receiving acknowledgment from the MT5 receiver
-- `latency_ms` is updated with the measured latency in milliseconds
+- `latency_us` is updated with the measured latency in milliseconds
 - `updated_at` timestamp is set
 
 ### On Error
@@ -175,7 +175,7 @@ sqlite3 trade_copier.db "SELECT name, address, state, updated_at FROM workers OR
 
 #### View worker latency
 ```bash
-sqlite3 trade_copier.db "SELECT name, address, latency_ms, updated_at FROM workers WHERE state = 'activated' ORDER BY latency_ms ASC;"
+sqlite3 trade_copier.db "SELECT name, address, latency_us, updated_at FROM workers WHERE state = 'activated' ORDER BY latency_us ASC;"
 ```
 
 ### Trades Queries

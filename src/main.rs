@@ -91,8 +91,8 @@ async fn main() -> Result<()> {
                 Err(_) => 0,
             };
             
-            // Insert system metrics snapshot
-            if let Err(e) = metrics_db.insert_system_metrics(
+            // Update system metrics
+            if let Err(e) = metrics_db.upsert_system_metrics(
                 "online",
                 5000,
                 true,
@@ -100,7 +100,7 @@ async fn main() -> Result<()> {
                 active_workers,
                 uptime_seconds,
             ).await {
-                eprintln!("[METRICS] Failed to insert system metrics: {}", e);
+                eprintln!("[METRICS] Failed to update system metrics: {}", e);
             }
         }
     });
@@ -122,9 +122,9 @@ async fn main() -> Result<()> {
     api_handle.abort();
     metrics_handle.abort();
     
-    // Insert final system metrics snapshot showing offline status
+    // Update final system metrics showing offline status
     let uptime_seconds = start_time.elapsed().as_secs();
-    if let Err(e) = db.insert_system_metrics(
+    if let Err(e) = db.upsert_system_metrics(
         "offline",
         5000,
         false,
@@ -132,7 +132,7 @@ async fn main() -> Result<()> {
         0,
         uptime_seconds,
     ).await {
-        eprintln!("[MAIN] Failed to insert shutdown metrics: {}", e);
+        eprintln!("[MAIN] Failed to update shutdown metrics: {}", e);
     }
     
     // Wait for all workers to finish gracefully (with timeout)

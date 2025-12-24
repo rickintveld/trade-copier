@@ -28,6 +28,7 @@ int g_tracking_count = 0;
 int FindTradeIdIndex(ulong trade_id);
 void AddPositionMapping(ulong trade_id, ulong ticket);
 void RemovePositionMapping(ulong trade_id);
+void SendAcknowledgment(bool success, string message);
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -141,11 +142,24 @@ bool ParseAndExecuteTrade(string json_data)
    string cmd = "open";  // Default to open
    
    // Extract fields from JSON
-   if(!ExtractJSONULong(json_data, "id", trade_id)) return false;
-   if(!ExtractJSONString(json_data, "symbol", symbol)) return false;
-   if(!ExtractJSONString(json_data, "type", trade_type)) return false;
-   if(!ExtractJSONDouble(json_data, "lots", lots)) return false;
+   if(!ExtractJSONULong(json_data, "id", trade_id)) 
+   {
+      SendAcknowledgment(false, "Failed to parse trade_id");
+      return false;
+   }
+   if(!ExtractJSONString(json_data, "symbol", symbol)) 
+   {
+      SendAcknowledgment(false, "Failed to parse symbol");
+      return false;
+   }
+   if(!ExtractJSONDouble(json_data, "lots", lots)) 
+   {
+      SendAcknowledgment(false, "Failed to parse lots");
+      return false;
+   }
    
+   // Optional fields
+   ExtractJSONString(json_data, "type", trade_type);  // Optional - not needed for close/modify
    ExtractJSONDouble(json_data, "sl", sl);
    ExtractJSONDouble(json_data, "tp", tp);
    ExtractJSONString(json_data, "cmd", cmd);
@@ -155,6 +169,13 @@ bool ParseAndExecuteTrade(string json_data)
    
    if(cmd == "open")
    {
+      // Validate trade_type for open command
+      if(trade_type == "")
+      {
+         SendAcknowledgment(false, "trade_type required for open command");
+         return false;
+      }
+      
       // Execute new position
       if(trade_type == "buy")
       {
@@ -163,6 +184,11 @@ bool ParseAndExecuteTrade(string json_data)
       else if(trade_type == "sell")
       {
          success = trade.Sell(lots, symbol, 0, sl, tp, "CopiedTrade");
+      }
+      else
+      {
+         SendAcknowledgment(false, "Invalid trade_type: " + trade_type);
+         return false;
       }
       
       if(success)
@@ -173,32 +199,63 @@ bool ParseAndExecuteTrade(string json_data)
          else if(PositionSelect(symbol))
             ticket = PositionGetInteger(POSITION_TICKET);
          AddPositionMapping(trade_id, ticket);
+         SendAcknowledgment(true, "Trade opened successfully");
+      }
+      else
+      {
+         SendAcknowledgment(false, "Failed to open trade");
       }
       return success;
    }
    else if(cmd == "close")
    {
       int idx = FindTradeIdIndex(trade_id);
-      if(idx < 0) return false;
+      if(idx < 0) 
+      {
+         SendAcknowledgment(false, "Trade ID not found");
+         return false;
+      }
       
       success = trade.PositionClose(g_position_tickets[idx]);
       if(success)
+      {
          RemovePositionMapping(trade_id);
+         SendAcknowledgment(true, "Trade closed successfully");
+      }
+      else
+      {
+         SendAcknowledgment(false, "Failed to close trade");
+      }
       return success;
    }
    else if(cmd == "modify")
    {
       int idx = FindTradeIdIndex(trade_id);
-      if(idx < 0) return false;
+      if(idx < 0) 
+      {
+         SendAcknowledgment(false, "Trade ID not found");
+         return false;
+      }
       
       ulong ticket = g_position_tickets[idx];
       if(!PositionSelectByTicket(ticket))
       {
          RemovePositionMapping(trade_id);
+         SendAcknowledgment(false, "Position not found");
          return false;
       }
-      return trade.PositionModify(ticket, sl, tp);
+      success = trade.PositionModify(ticket, sl, tp);
+      if(success)
+      {
+         SendAcknowledgment(true, "Trade modified successfully");
+      }
+      else
+      {
+         SendAcknowledgment(false, "Failed to modify trade");
+      }
+      return success;
    }
+   SendAcknowledgment(false, "Unknown command");
    return false;
 }
 
@@ -345,4 +402,28 @@ void RemovePositionMapping(ulong trade_id)
    g_tracking_count--;
    ArrayResize(g_trade_ids, g_tracking_count);
    ArrayResize(g_position_tickets, g_tracking_count);
+}
+
+//+------------------------------------------------------------------+
+//| Send acknowledgment back to Rust worker                          |
+//+------------------------------------------------------------------+
+void SendAcknowledgment(bool success, string message)
+{
+   if(socketHandle == INVALID_SOCKET)
+      return;
+   
+   // Create acknowledgment message (newline-terminated)
+   string ack = (success ? "OK: " : "ERROR: ") + message + "\n";
+   
+   // Convert to bytes
+   uchar data[];
+   StringToCharArray(ack, data, 0, StringLen(ack), CP_UTF8);
+   
+   // Send to worker
+   int sent = SocketSend(socketHandle, data, ArraySize(data));
+   
+   if(sent <= 0)
+   {
+      Print("[RECEIVER] Failed to send acknowledgment");
+   }
 }
