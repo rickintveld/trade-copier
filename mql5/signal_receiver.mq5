@@ -209,13 +209,27 @@ bool ParseAndExecuteTrade(string json_data)
       
       if(success)
       {
-         ulong ticket = trade.ResultOrder();
-         if(PositionSelectByTicket(ticket))
-            ticket = PositionGetInteger(POSITION_TICKET);
-         else if(PositionSelect(symbol))
-            ticket = PositionGetInteger(POSITION_TICKET);
-         AddPositionMapping(trade_id, ticket);
-         SendAcknowledgment(true, "Trade opened successfully");
+         // Get the position ticket from the result
+         ulong ticket = trade.ResultDeal();
+         if(ticket > 0 && HistoryDealSelect(ticket))
+         {
+            ticket = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
+         }
+         else
+         {
+            // Fallback: try ResultOrder
+            ticket = trade.ResultOrder();
+         }
+         
+         if(ticket > 0)
+         {
+            AddPositionMapping(trade_id, ticket);
+            SendAcknowledgment(true, "Trade opened successfully");
+         }
+         else
+         {
+            SendAcknowledgment(false, "Failed to get position ticket");
+         }
       }
       else
       {
