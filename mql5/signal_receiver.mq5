@@ -18,6 +18,8 @@ input int Slippage = 10;               // Slippage in points
 
 int socketHandle = INVALID_SOCKET;
 CTrade trade;
+bool g_connection_lost = false;
+datetime g_last_recv_time = 0;
 
 // Position tracking: maps trade_id to position ticket
 ulong g_trade_ids[];
@@ -30,6 +32,11 @@ void AddPositionMapping(ulong trade_id, ulong ticket);
 void RemovePositionMapping(ulong trade_id);
 void SendAcknowledgment(bool success, string message);
 
+// Connection management
+bool ConnectToWorker();
+void DisconnectFromWorker();
+bool EnsureConnection();
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -39,37 +46,20 @@ int OnInit()
    ArrayResize(g_trade_ids, 0);
    ArrayResize(g_position_tickets, 0);
    g_tracking_count = 0;
+   g_connection_lost = false;
+   g_last_recv_time = 0;
    
    Print("[RECEIVER] Trade Copier Slave EA started");
    Print("[RECEIVER] Connecting to worker at ", WorkerIP, ":", WorkerPort);
-   
-   // Initialize TCP socket
-   socketHandle = SocketCreate();
-   if(socketHandle == INVALID_SOCKET)
-   {
-      int error = GetLastError();
-      Print("[RECEIVER] ERROR: Failed to create socket, error code: ", error);
-      return INIT_FAILED;
-   }
-   
-   Print("[RECEIVER] Socket created successfully, handle: ", socketHandle);
-   
-   // Connect to Rust worker's TCP server
-   if(!SocketConnect(socketHandle, WorkerIP, WorkerPort, 1000))
-   {
-      int error = GetLastError();
-      Print("[RECEIVER] ERROR: Failed to connect to worker at ", WorkerIP, ":", WorkerPort, ", error code: ", error);
-      Print("[RECEIVER] Common error codes: 5002=DLL not allowed, 4014=Internal error, 5200=Socket error");
-      SocketClose(socketHandle);
-      return INIT_FAILED;
-   }
    
    // Set trade parameters
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(Slippage);
    trade.SetTypeFilling(ORDER_FILLING_FOK);
    
-   Print("[RECEIVER] Connected to worker successfully (TCP)");
+   if(!ConnectToWorker())
+      return INIT_FAILED;
+   
    return INIT_SUCCEEDED;
 }
 
@@ -78,9 +68,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   if(socketHandle != INVALID_SOCKET)
-      SocketClose(socketHandle);
-   
+   DisconnectFromWorker();
    Print("[RECEIVER] Slave EA stopped");
 }
 
@@ -89,6 +77,19 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   // Reconnect if connection lost
+   if(g_connection_lost)
+   {
+      datetime current_time = TimeLocal();
+      if(current_time - g_last_recv_time > 5) // Try reconnect every 5 seconds
+      {
+         Print("[RECEIVER] Attempting to reconnect...");
+         DisconnectFromWorker();
+         g_connection_lost = !ConnectToWorker();
+         g_last_recv_time = current_time;
+      }
+   }
+   
    // Check for incoming TCP messages
    CheckIncomingTrades();
 }
@@ -98,6 +99,9 @@ void OnTick()
 //+------------------------------------------------------------------+
 void CheckIncomingTrades()
 {
+   if(!EnsureConnection())
+      return;
+   
    // Check if data is available
    uint len = SocketIsReadable(socketHandle);
    if(len == 0)
@@ -111,6 +115,8 @@ void CheckIncomingTrades()
    
    if(received > 0)
    {
+      g_last_recv_time = TimeLocal();
+      
       // Convert to string
       string data = CharArrayToString(buffer, 0, received, CP_UTF8);
       
@@ -122,6 +128,16 @@ void CheckIncomingTrades()
       {
          if(StringLen(messages[i]) > 0)
             ParseAndExecuteTrade(messages[i]);
+      }
+   }
+   else if(received < 0)
+   {
+      int error = GetLastError();
+      Print("[RECEIVER] ERROR: Read failed, error: ", error);
+      if(error == 5273) // ERR_NETSOCKET_IO_ERROR
+      {
+         Print("[RECEIVER] Connection lost (ERR_NETSOCKET_IO_ERROR). Will attempt reconnect.");
+         g_connection_lost = true;
       }
    }
 }
@@ -405,11 +421,68 @@ void RemovePositionMapping(ulong trade_id)
 }
 
 //+------------------------------------------------------------------+
+//| Connection management functions                                  |
+//+------------------------------------------------------------------+
+bool ConnectToWorker()
+{
+   // Initialize TCP socket
+   socketHandle = SocketCreate();
+   if(socketHandle == INVALID_SOCKET)
+   {
+      int error = GetLastError();
+      Print("[RECEIVER] ERROR: Failed to create socket, error code: ", error);
+      return false;
+   }
+   
+   Print("[RECEIVER] Socket created successfully, handle: ", socketHandle);
+   
+   // Connect to Rust worker's TCP server
+   if(!SocketConnect(socketHandle, WorkerIP, WorkerPort, 1000))
+   {
+      int error = GetLastError();
+      Print("[RECEIVER] ERROR: Failed to connect to worker at ", WorkerIP, ":", WorkerPort, ", error code: ", error);
+      Print("[RECEIVER] Common error codes: 5002=DLL not allowed, 4014=Internal error, 5200=Socket error");
+      SocketClose(socketHandle);
+      socketHandle = INVALID_SOCKET;
+      return false;
+   }
+   
+   Print("[RECEIVER] Connected to worker successfully (TCP)");
+   g_connection_lost = false;
+   g_last_recv_time = TimeLocal();
+   return true;
+}
+
+void DisconnectFromWorker()
+{
+   if(socketHandle != INVALID_SOCKET)
+   {
+      SocketClose(socketHandle);
+      socketHandle = INVALID_SOCKET;
+      Print("[RECEIVER] Disconnected from worker");
+   }
+}
+
+bool EnsureConnection()
+{
+   if(g_connection_lost)
+      return false;
+      
+   if(socketHandle == INVALID_SOCKET)
+   {
+      g_connection_lost = true;
+      return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
 //| Send acknowledgment back to Rust worker                          |
 //+------------------------------------------------------------------+
 void SendAcknowledgment(bool success, string message)
 {
-   if(socketHandle == INVALID_SOCKET)
+   if(!EnsureConnection())
       return;
    
    // Create acknowledgment message (newline-terminated)
@@ -424,6 +497,12 @@ void SendAcknowledgment(bool success, string message)
    
    if(sent <= 0)
    {
-      Print("[RECEIVER] Failed to send acknowledgment");
+      int error = GetLastError();
+      Print("[RECEIVER] ERROR: Failed to send acknowledgment, error: ", error);
+      if(error == 5273) // ERR_NETSOCKET_IO_ERROR
+      {
+         Print("[RECEIVER] Connection lost (ERR_NETSOCKET_IO_ERROR). Will attempt reconnect.");
+         g_connection_lost = true;
+      }
    }
 }
