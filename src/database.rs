@@ -5,17 +5,19 @@ use crate::types::Trade;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WorkerState {
-    Activated,
+    Active,
     Error,
-    Deactivated,
+    Inactive,
+    Installing,
 }
 
 impl WorkerState {
     fn as_str(&self) -> &'static str {
         match self {
-            WorkerState::Activated => "activated",
+            WorkerState::Active => "active",
             WorkerState::Error => "error",
-            WorkerState::Deactivated => "deactivated",
+            WorkerState::Inactive => "inactive",
+            WorkerState::Installing => "installing",
         }
     }
 }
@@ -446,6 +448,128 @@ impl Database {
         Ok(result)
     }
     
+    // Create a new worker configuration entry with a specific state
+    pub async fn create_worker_with_state(
+        &self,
+        name: &str,
+        address: &str,
+        multiplier: f64,
+        state: WorkerState,
+    ) -> Result<()> {
+        let name = name.to_string();
+        let address = address.to_string();
+        let state_str = state.as_str().to_string();
+        
+        let result = self.conn.call(move |conn| {
+            // Check if worker with this name or address already exists
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM workers WHERE name = ?1 OR address = ?2",
+                rusqlite::params![&name, &address],
+                |row| row.get(0),
+            )?;
+            
+            if count > 0 {
+                return Err(tokio_rusqlite::Error::Rusqlite(
+                    rusqlite::Error::SqliteFailure(
+                        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                        Some(format!("Worker with name '{}' or address '{}' already exists", name, address)),
+                    )
+                ));
+            }
+            
+            // Insert new worker with specified state
+            conn.execute(
+                "INSERT INTO workers (name, address, multiplier, state, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)",
+                rusqlite::params![&name, &address, multiplier, &state_str],
+            )?;
+            
+            Ok(())
+        }).await;
+        
+        result.map_err(|e| anyhow::anyhow!(e))
+    }
+    
+    /// Delete a worker by name
+    pub async fn delete_worker(&self, name: &str) -> Result<()> {
+        let name = name.to_string();
+        let name_clone = name.clone();
+        
+        let result = self.conn.call(move |conn| {
+            let rows_affected = conn.execute(
+                "DELETE FROM workers WHERE name = ?1",
+                rusqlite::params![&name],
+            )?;
+            
+            if rows_affected == 0 {
+                return Err(tokio_rusqlite::Error::Rusqlite(rusqlite::Error::QueryReturnedNoRows));
+            }
+            
+            Ok(())
+        }).await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(tokio_rusqlite::Error::Rusqlite(rusqlite::Error::QueryReturnedNoRows)) => {
+                Err(anyhow::anyhow!("Worker '{}' not found", name_clone))
+            }
+            Err(e) => Err(anyhow::anyhow!(e)),
+        }
+    }
+    
+    /// Get all worker configurations for startup (simplified version without state)
+    pub async fn get_worker_configs(&self) -> Result<Vec<WorkerConfig>> {
+        let result = self.conn.call(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT name, address, multiplier FROM workers ORDER BY created_at ASC"
+            )?;
+            
+            let configs = stmt.query_map([], |row| {
+                Ok(WorkerConfig {
+                    name: row.get(0)?,
+                    address: row.get(1)?,
+                    multiplier: row.get(2)?,
+                })
+            })?.collect::<Result<Vec<_>, _>>()?;
+            
+            Ok(configs)
+        }).await?;
+        
+        Ok(result)
+    }
+
+    /// Get a worker by name
+    #[allow(dead_code)]
+    pub async fn get_worker_by_name(&self, name: &str) -> Result<Option<WorkerRecord>> {
+        let name = name.to_string();
+        
+        let result = self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, name, address, multiplier, state, last_error, latency_us, created_at, updated_at
+                 FROM workers WHERE name = ?1"
+            )?;
+            
+            let mut rows = stmt.query(rusqlite::params![&name])?;
+            if let Some(row) = rows.next()? {
+                Ok(Some(WorkerRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    address: row.get(2)?,
+                    multiplier: row.get(3)?,
+                    state: row.get(4)?,
+                    last_error: row.get(5)?,
+                    latency_us: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        }).await?;
+        
+        Ok(result)
+    }
+    
 }
 
 // API response types
@@ -500,4 +624,11 @@ pub struct SystemMetricsRecord {
     pub active_workers: i64,
     pub uptime_seconds: i64,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkerConfig {
+    pub name: String,
+    pub address: String,
+    pub multiplier: f64,
 }

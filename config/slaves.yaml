@@ -1,4 +1,0 @@
-slaves:
-  - name: "FN-200k"
-    address: "0.0.0.0:5050"
-    multiplier: 2.0

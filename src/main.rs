@@ -1,19 +1,19 @@
 mod api;
 mod database;
+mod installer;
 mod router;
 mod types;
 mod worker;
+mod worker_manager;
 
 use anyhow::Result;
-use std::fs;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, watch};
 use database::Database;
-use types::{Config, Trade};
+use types::Trade;
 
 const BROADCAST_CHANNEL_SIZE: usize = 1024;
-const CONFIG_PATH: &str = "config/slaves.yaml";
 const DB_PATH: &str = "trade_copier.db";
 
 #[tokio::main]
@@ -27,38 +27,30 @@ async fn main() -> Result<()> {
     // Track start time for uptime calculation
     let start_time = Instant::now();
 
-    // Load configuration
-    let config_content = fs::read_to_string(CONFIG_PATH)?;
-    let config: Config = serde_yaml::from_str(&config_content)?;
-
-    println!("📋 Loaded {} slave(s) from config", config.slaves.len());
-    for slave in &config.slaves {
-        println!(
-            "  - {} @ {} (multiplier: {}x)",
-            slave.name, slave.address, slave.multiplier
-        );
-    }
-
     // Create broadcast channel for trades
     let (tx, _rx) = broadcast::channel::<Trade>(BROADCAST_CHANNEL_SIZE);
     
     // Create shutdown signal channel
     let (shutdown_tx, _shutdown_rx) = watch::channel(false);
 
-    // Spawn workers for each slave
-    let mut worker_handles = vec![];
-    let slaves = config.slaves.clone();
-    for slave in config.slaves {
-        let rx = tx.subscribe();
-        let db_clone = db.clone();
-        let shutdown_rx = shutdown_tx.subscribe();
-        let handle = tokio::spawn(async move {
-            if let Err(e) = worker::run_worker(slave.clone(), rx, db_clone, shutdown_rx).await {
-                eprintln!("[WORKER:{}] Error: {}", slave.name, e);
-            }
-        });
-        worker_handles.push(handle);
-    }
+    // Create worker manager
+    let (worker_manager, command_rx) = worker_manager::WorkerManager::new(
+        db.clone(),
+        tx.clone(),
+    );
+    let worker_manager = Arc::new(worker_manager);
+    
+    // Load and start all workers
+    worker_manager.load_workers().await?;
+    
+    // Get worker command sender for API
+    let worker_command_tx = worker_manager.command_sender();
+    
+    // Spawn worker manager event loop
+    let worker_manager_clone = worker_manager.clone();
+    let worker_manager_handle = tokio::spawn(async move {
+        worker_manager_clone.run(command_rx).await;
+    });
 
     // Spawn router
     let router_handle = tokio::spawn(async move {
@@ -67,17 +59,16 @@ async fn main() -> Result<()> {
         }
     });
     
-    // Spawn API server
+    // Spawn API server with worker command sender
     let api_db_clone = db.clone();
     let api_handle = tokio::spawn(async move {
-        if let Err(e) = api::run_api(api_db_clone).await {
+        if let Err(e) = api::run_api(api_db_clone, worker_command_tx).await {
             eprintln!("[API] Error: {}", e);
         }
     });
     
     // Spawn system metrics collector (runs every 30 seconds)
     let metrics_db = db.clone();
-    let total_workers = slaves.len() as i32;
     let metrics_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
         loop {
@@ -85,10 +76,14 @@ async fn main() -> Result<()> {
             
             let uptime_seconds = start_time.elapsed().as_secs();
             
-            // Count active workers from database
-            let active_workers = match metrics_db.get_all_workers().await {
-                Ok(workers) => workers.iter().filter(|w| w.state == "activated").count() as i32,
-                Err(_) => 0,
+            // Get worker counts from database
+            let (total_workers, active_workers) = match metrics_db.get_all_workers().await {
+                Ok(workers) => {
+                    let total = workers.len() as i32;
+                    let active = workers.iter().filter(|w| w.state == "activated").count() as i32;
+                    (total, active)
+                }
+                Err(_) => (0, 0),
             };
             
             // Update system metrics
@@ -114,49 +109,34 @@ async fn main() -> Result<()> {
     tokio::signal::ctrl_c().await?;
     println!("\n🛑 Shutting down...");
 
-    // Send shutdown signal to all workers
+    // Send shutdown signal
     let _ = shutdown_tx.send(true);
     
-    // Abort router, API server, and metrics collector (don't need graceful shutdown)
+    // Abort router, API server, metrics collector, and worker manager (don't need graceful shutdown)
     router_handle.abort();
     api_handle.abort();
     metrics_handle.abort();
+    worker_manager_handle.abort();
+    
+    // Shutdown worker manager and all workers
+    worker_manager.shutdown().await;
     
     // Update final system metrics showing offline status
     let uptime_seconds = start_time.elapsed().as_secs();
+    let (total_workers, _) = match db.get_all_workers().await {
+        Ok(workers) => (workers.len() as i32, 0),
+        Err(_) => (0, 0),
+    };
+    
     if let Err(e) = db.upsert_system_metrics(
         "offline",
         5000,
         false,
-        slaves.len() as i32,
+        total_workers,
         0,
         uptime_seconds,
     ).await {
         eprintln!("[MAIN] Failed to update shutdown metrics: {}", e);
-    }
-    
-    // Wait for all workers to finish gracefully (with timeout)
-    let shutdown_timeout = tokio::time::Duration::from_secs(5);
-    for (handle, slave) in worker_handles.into_iter().zip(slaves.iter()) {
-        match tokio::time::timeout(shutdown_timeout, handle).await {
-            Ok(Ok(())) => println!("[WORKER:{}] Shutdown complete", slave.name),
-            Ok(Err(e)) => eprintln!("[WORKER:{}] Join error: {}", slave.name, e),
-            Err(_) => {
-                eprintln!("[WORKER:{}] Shutdown timeout, forcing abort", slave.name);
-                // Worker will be aborted when handle is dropped
-            }
-        }
-    }
-
-    // Update any remaining workers to deactivated state
-    for slave in &slaves {
-        if let Err(e) = db.update_worker_state(
-            &slave.address,
-            database::WorkerState::Deactivated,
-            None,
-        ).await {
-            eprintln!("[MAIN] Failed to update final state for {}: {}", slave.name, e);
-        }
     }
 
     println!("👋 Trade Copier stopped");

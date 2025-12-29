@@ -21,7 +21,7 @@ pub async fn run_worker(
         &slave.name,
         &slave.address,
         slave.multiplier,
-        WorkerState::Activated,
+        WorkerState::Active,
         None,
     ).await {
         eprintln!("[WORKER:{}] Failed to update database on startup: {}", slave.name, e);
@@ -198,7 +198,7 @@ pub async fn run_worker(
     println!("[WORKER:{}] Deactivating worker", slave.name);
     if let Err(e) = db.update_worker_state(
         &slave.address,
-        WorkerState::Deactivated,
+        WorkerState::Inactive,
         None,
     ).await {
         eprintln!("[WORKER:{}] Failed to update database on shutdown: {}", slave.name, e);

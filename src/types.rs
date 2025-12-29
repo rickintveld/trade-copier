@@ -21,14 +21,9 @@ fn default_cmd() -> String {
     "open".to_string()
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlaveConfig {
     pub name: String,
     pub address: String,
     pub multiplier: f64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Config {
-    pub slaves: Vec<SlaveConfig>,
 }
