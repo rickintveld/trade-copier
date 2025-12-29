@@ -5,6 +5,7 @@ use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
+use std::path::PathBuf;
 use crate::database::{Database, WorkerState, ErrorSeverity};
 use crate::types::{Trade, SlaveConfig};
 
@@ -13,16 +14,19 @@ pub async fn run_worker(
     mut rx: broadcast::Receiver<Trade>,
     db: Arc<Database>,
     mut shutdown_rx: watch::Receiver<bool>,
+    wine_prefix: Option<PathBuf>,
 ) -> Result<()> {
     println!("[WORKER:{}] Starting TCP server on {}", slave.name, slave.address);
 
     // Set worker state to activated in database
+    let wine_prefix_str = wine_prefix.as_ref().map(|p| p.to_string_lossy().to_string());
     if let Err(e) = db.upsert_worker(
         &slave.name,
         &slave.address,
         slave.multiplier,
         WorkerState::Active,
         None,
+        wine_prefix_str.as_deref(),
     ).await {
         eprintln!("[WORKER:{}] Failed to update database on startup: {}", slave.name, e);
     }
@@ -58,6 +62,18 @@ pub async fn run_worker(
     let name_clone = slave.name.clone();
     let address_clone = slave.address.clone();
     let db_clone = db.clone();
+
+    // Spawn Wine process monitoring task if prefix is provided
+    if let Some(prefix) = wine_prefix {
+        let shutdown_tx_clone = shutdown_rx.clone();
+        let name_monitor = slave.name.clone();
+        let db_monitor = db.clone();
+        let address_monitor = slave.address.clone();
+        
+        tokio::spawn(async move {
+            monitor_wine_process(prefix, name_monitor, db_monitor, address_monitor, shutdown_tx_clone).await;
+        });
+    }
 
     // Spawn task to accept connections
     tokio::spawn(async move {
@@ -205,6 +221,114 @@ pub async fn run_worker(
     }
 
     Ok(())
+}
+
+/// Monitor Wine process associated with this worker's MT5 instance
+async fn monitor_wine_process(
+    wine_prefix: PathBuf,
+    worker_name: String,
+    db: Arc<Database>,
+    address: String,
+    mut shutdown_rx: watch::Receiver<bool>,
+) {
+    let check_interval = tokio::time::Duration::from_secs(5);
+    let mut interval = tokio::time::interval(check_interval);
+    
+    println!("[WORKER:{}] Starting Wine process monitor for prefix: {:?}", worker_name, wine_prefix);
+    println!("[WORKER:{}] Waiting for Wine process to start before monitoring...", worker_name);
+    
+    // Phase 1: Wait for Wine process to start (grace period)
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                match is_wine_running(&wine_prefix).await {
+                    Ok(true) => {
+                        println!("[WORKER:{}] Wine process detected, starting monitoring", worker_name);
+                        break;
+                    }
+                    Ok(false) => {
+                        // Wine not running yet, keep waiting silently
+                    }
+                    Err(e) => {
+                        eprintln!("[WORKER:{}] Error checking Wine process: {}", worker_name, e);
+                    }
+                }
+            }
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    println!("[WORKER:{}] Wine monitor received shutdown signal before Wine started", worker_name);
+                    return;
+                }
+            }
+        }
+    }
+    
+    // Phase 2: Monitor Wine process - only starts after Wine has been detected
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                // Check if Wine process is still running for this prefix
+                match is_wine_running(&wine_prefix).await {
+                    Ok(false) => {
+                        let error_msg = format!(
+                            "Wine process stopped for prefix {:?}. MT5 application closed.",
+                            wine_prefix
+                        );
+                        eprintln!("[WORKER:{}] {}", worker_name, error_msg);
+                        
+                        // Update worker state
+                        if let Err(e) = db.update_worker_state(
+                            &address,
+                            WorkerState::Inactive,
+                            Some(&error_msg),
+                        ).await {
+                            eprintln!("[WORKER:{}] Failed to update state: {}", worker_name, e);
+                        }
+                        
+                        // Log warning
+                        if let Err(e) = db.insert_worker_error(
+                            &address,
+                            ErrorSeverity::Warning,
+                            &error_msg,
+                        ).await {
+                            eprintln!("[WORKER:{}] Failed to log error: {}", worker_name, e);
+                        }
+                        
+                        println!("[WORKER:{}] Worker stopped due to Wine process termination", worker_name);
+                        break;
+                    }
+                    Ok(true) => {
+                        // Still running, continue monitoring
+                    }
+                    Err(e) => {
+                        eprintln!("[WORKER:{}] Error checking Wine process: {}", worker_name, e);
+                    }
+                }
+            }
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    println!("[WORKER:{}] Wine monitor received shutdown signal", worker_name);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Check if a Wine process is running for the given prefix
+async fn is_wine_running(wine_prefix: &PathBuf) -> Result<bool> {
+    // Check for any wine processes with this WINEPREFIX
+    let prefix_str = wine_prefix.display().to_string();
+    
+    // Use ps to list all processes and grep for our prefix
+    // This is more reliable than pgrep for detecting Wine processes
+    let output = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("ps aux | grep -i 'WINEPREFIX={}' | grep -v grep", prefix_str))
+        .output()
+        .await?;
+    
+    Ok(output.status.success() && !output.stdout.is_empty())
 }
 
 async fn send_trade(

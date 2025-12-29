@@ -8,6 +8,7 @@ pub mod windows;
 
 use anyhow::Result;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use crate::database::Database;
 
 pub use common::Instance;
@@ -53,6 +54,7 @@ impl InstanceManager {
         name: String,
         address: String,
         multiplier: f64,
+        reload_tx: Option<mpsc::Sender<crate::worker_manager::WorkerCommand>>,
     ) -> Result<Instance> {
         use crate::database::{WorkerState};
         
@@ -78,13 +80,23 @@ impl InstanceManager {
                 // Download installer
                 let installer_path = common::download_mt5_installer().await?;
                 // Run platform-specific creation (may install MT5)
-                let _instance = inner.create_instance(name_bg.clone(), address_bg.clone(), multiplier, &installer_path).await?;
+                let _instance = inner.create_instance(name_bg.clone(), address_bg.clone(), multiplier, &installer_path, db.clone()).await?;
                 // Clean up
                 if let Err(e) = std::fs::remove_file(&installer_path) {
                     eprintln!("[INSTALLER] Warning: Failed to remove installer: {}", e);
                 }
-                // Mark as deactivated after installation completes; user must manually start MT5
+                // Mark as inactive after installation completes - worker will activate when application starts
                 db.update_worker_state(&address_bg, WorkerState::Inactive, None).await?;
+                
+                // Trigger worker reload if callback provided
+                if let Some(tx) = reload_tx {
+                    if let Err(e) = tx.send(crate::worker_manager::WorkerCommand::Reload).await {
+                        eprintln!("[INSTALLER] Failed to trigger worker reload: {}", e);
+                    } else {
+                        println!("[INSTALLER] Triggered worker reload for new instance '{}'", name_bg);
+                    }
+                }
+                
                 anyhow::Ok(())
             }.await {
                 eprintln!("[INSTALLER] Background install for '{}' failed: {}", name_bg, e);
@@ -118,7 +130,7 @@ impl InstanceManager {
 
     /// Start all MT5 instances
     pub async fn start_all_instances(&self) -> Result<()> {
-        self.inner.start_all_instances().await
+        self.inner.start_all_instances(Some(self.db.clone())).await
     }
 
     /// List all MT5 instances

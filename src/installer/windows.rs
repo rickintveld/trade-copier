@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::common::{Instance, InstanceConfig};
+use crate::database::{Database, WorkerState};
+use std::sync::Arc;
 
 pub struct WindowsInstanceManager {
     config_path: PathBuf,
@@ -52,6 +54,7 @@ impl WindowsInstanceManager {
         address: String,
         multiplier: f64,
         installer_path: &Path,
+        db: Arc<Database>,
     ) -> Result<Instance> {
         let mut config = InstanceConfig::load(&self.config_path)?;
 
@@ -92,13 +95,24 @@ impl WindowsInstanceManager {
         // Save instance to local config
         config.add_instance(instance.clone())?;
         config.save(&self.config_path)?;
+        
+        // Save worker to database with instance path (Windows doesn't use Wine)
+        let path_str = instance_path.to_string_lossy().to_string();
+        db.upsert_worker(
+            &name,
+            &address,
+            multiplier,
+            WorkerState::Inactive,
+            None,
+            Some(&path_str),
+        ).await?;
 
         println!("[INSTALLER] Instance '{}' created successfully!", name);
         println!("[INSTALLER]   ID: {}", id);
         println!("[INSTALLER]   Path: {:?}", instance_path);
         println!("[INSTALLER]   Address: {}", address);
         println!("[INSTALLER]   Multiplier: {}", multiplier);
-        println!("[INSTALLER] NOTE: Restart the trade copier to activate the new worker");
+        println!("[INSTALLER] NOTE: Worker will be activated automatically after installation completes");
 
         Ok(instance)
     }
@@ -128,7 +142,7 @@ impl WindowsInstanceManager {
         }
 
         println!("[INSTALLER] Instance '{}' deleted successfully", name);
-        println!("[INSTALLER] NOTE: Restart the trade copier to stop the worker");
+        println!("[INSTALLER] NOTE: Workers will be reloaded automatically");
 
         Ok(())
     }
@@ -165,7 +179,7 @@ impl WindowsInstanceManager {
         Ok(())
     }
 
-    pub async fn start_all_instances(&self) -> Result<()> {
+    pub async fn start_all_instances(&self, _db: Option<std::sync::Arc<crate::database::Database>>) -> Result<()> {
         let config = InstanceConfig::load(&self.config_path)?;
 
         if config.instances.is_empty() {

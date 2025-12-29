@@ -58,6 +58,7 @@ impl Database {
                     state TEXT NOT NULL,
                     last_error TEXT,
                     latency_us INTEGER,
+                    wine_prefix TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )",
@@ -159,23 +160,26 @@ impl Database {
         multiplier: f64,
         state: WorkerState,
         error: Option<&str>,
+        wine_prefix: Option<&str>,
     ) -> Result<()> {
         let state_str = state.as_str().to_string();
         let name = name.to_string();
         let address = address.to_string();
         let error = error.map(|s| s.to_string());
+        let wine_prefix = wine_prefix.map(|s| s.to_string());
         
         self.conn.call(move |conn| {
             conn.execute(
-                "INSERT INTO workers (name, address, multiplier, state, last_error, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+                "INSERT INTO workers (name, address, multiplier, state, last_error, wine_prefix, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)
                  ON CONFLICT(address) DO UPDATE SET
                     name = excluded.name,
                     multiplier = excluded.multiplier,
                     state = excluded.state,
                     last_error = excluded.last_error,
+                    wine_prefix = excluded.wine_prefix,
                     updated_at = CURRENT_TIMESTAMP",
-                rusqlite::params![&name, &address, multiplier, &state_str, &error],
+                rusqlite::params![&name, &address, multiplier, &state_str, &error, &wine_prefix],
             )?;
             Ok(())
         }).await?;
@@ -327,7 +331,7 @@ impl Database {
     pub async fn get_all_workers(&self) -> Result<Vec<WorkerRecord>> {
         let result = self.conn.call(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, address, multiplier, state, last_error, latency_us, created_at, updated_at 
+                "SELECT id, name, address, multiplier, state, last_error, latency_us, wine_prefix, created_at, updated_at 
                  FROM workers ORDER BY address, created_at DESC"
             )?;
             
@@ -340,8 +344,9 @@ impl Database {
                     state: row.get(4)?,
                     last_error: row.get(5)?,
                     latency_us: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
+                    wine_prefix: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
                 })
             })?.collect::<Result<Vec<_>, _>>()?;
             
@@ -521,7 +526,7 @@ impl Database {
     pub async fn get_worker_configs(&self) -> Result<Vec<WorkerConfig>> {
         let result = self.conn.call(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT name, address, multiplier FROM workers ORDER BY created_at ASC"
+                "SELECT name, address, multiplier, wine_prefix FROM workers ORDER BY created_at ASC"
             )?;
             
             let configs = stmt.query_map([], |row| {
@@ -529,6 +534,7 @@ impl Database {
                     name: row.get(0)?,
                     address: row.get(1)?,
                     multiplier: row.get(2)?,
+                    wine_prefix: row.get(3)?,
                 })
             })?.collect::<Result<Vec<_>, _>>()?;
             
@@ -545,7 +551,7 @@ impl Database {
         
         let result = self.conn.call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, address, multiplier, state, last_error, latency_us, created_at, updated_at
+                "SELECT id, name, address, multiplier, state, last_error, latency_us, wine_prefix, created_at, updated_at
                  FROM workers WHERE name = ?1"
             )?;
             
@@ -559,8 +565,9 @@ impl Database {
                     state: row.get(4)?,
                     last_error: row.get(5)?,
                     latency_us: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
+                    wine_prefix: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
                 }))
             } else {
                 Ok(None)
@@ -582,6 +589,7 @@ pub struct WorkerRecord {
     pub state: String,
     pub last_error: Option<String>,
     pub latency_us: Option<i64>,
+    pub wine_prefix: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -631,4 +639,5 @@ pub struct WorkerConfig {
     pub name: String,
     pub address: String,
     pub multiplier: f64,
+    pub wine_prefix: Option<String>,
 }

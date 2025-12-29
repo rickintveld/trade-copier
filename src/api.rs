@@ -205,7 +205,7 @@ async fn create_instance(
 ) -> impl IntoResponse {
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => match manager
-            .create_instance(req.name, req.address, req.multiplier)
+            .create_instance(req.name, req.address, req.multiplier, Some(state.worker_command_tx.clone()))
             .await
         {
             Ok(instance) => (
