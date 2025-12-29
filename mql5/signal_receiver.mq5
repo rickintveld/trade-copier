@@ -258,6 +258,35 @@ bool ParseAndExecuteTrade(string json_data)
       }
       return success;
    }
+   else if(cmd == "partial_close")
+   {
+      int idx = FindTradeIdIndex(trade_id);
+      if(idx < 0) 
+      {
+         SendAcknowledgment(false, "Trade ID not found");
+         return false;
+      }
+      
+      ulong ticket = g_position_tickets[idx];
+      if(!PositionSelectByTicket(ticket))
+      {
+         RemovePositionMapping(trade_id);
+         SendAcknowledgment(false, "Position not found");
+         return false;
+      }
+      
+      // Partial close: close specified volume, keep position mapping
+      success = trade.PositionClosePartial(ticket, lots);
+      if(success)
+      {
+         SendAcknowledgment(true, "Partial close successful");
+      }
+      else
+      {
+         SendAcknowledgment(false, "Failed to partially close trade");
+      }
+      return success;
+   }
    else if(cmd == "modify")
    {
       int idx = FindTradeIdIndex(trade_id);

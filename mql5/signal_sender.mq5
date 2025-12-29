@@ -143,20 +143,29 @@ void OnTradeTransaction(
                
                SendTradeSignal(json);
             }
-            // Handle position CLOSE
+            // Handle position CLOSE (full or partial)
             else if(deal_entry == DEAL_ENTRY_OUT)
             {
                int idx = FindPositionIndex(position_ticket);
                if(idx >= 0)
                {
-                  // Build and send close signal
+                  // Check if position still exists (partial close) or is fully closed
+                  bool is_partial_close = PositionSelectByTicket(position_ticket);
+                  string cmd = is_partial_close ? "partial_close" : "close";
+                  
+                  // Build and send close signal with actual closed volume
                   string json = "{\"id\":" + IntegerToString(g_trade_ids[idx]) + 
                                ",\"symbol\":\"" + symbol + 
                                "\",\"lots\":" + DoubleToString(lots, 2) + 
-                               ",\"cmd\":\"close\"}";
+                               ",\"cmd\":\"" + cmd + "\"}";
                   
                   SendTradeSignal(json);
-                  RemovePositionTracking(position_ticket);
+                  
+                  // Only remove tracking if it's a full close
+                  if(!is_partial_close)
+                  {
+                     RemovePositionTracking(position_ticket);
+                  }
                }
             }
          }

@@ -103,6 +103,7 @@ Retrieve recent trades executed by workers.
 **Trade Commands:**
 - `open` - Open a new position
 - `close` - Close an existing position
+- `partial_close` - Close a partial volume from an existing position
 - `modify` - Modify an existing position
 
 ---

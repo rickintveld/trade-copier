@@ -12,6 +12,7 @@ This project implements a **high-performance MetaTrader 5 → Rust → MetaTrade
 ### Features:
 - ✅ **Open positions** - Copy new trades with lot multipliers
 - ✅ **Close positions** - Close specific positions across all slaves
+- ✅ **Partial closes** - Close partial volumes from positions
 - ✅ **Modify SL/TP** - Update stop loss and take profit in real-time
 - ✅ **Multiple positions** - Handle multiple positions on the same symbol
 - ✅ **Position tracking** - Maintain mapping between master and slave positions
@@ -109,6 +110,11 @@ Worker → Slave (newline-delimited JSON):
 **Close position:**
 ```json
 {"id":123456,"symbol":"EURUSD","type":"buy","lots":0.30,"cmd":"close"}
+```
+
+**Partial close:**
+```json
+{"id":123456,"symbol":"EURUSD","lots":0.10,"cmd":"partial_close"}
 ```
 
 **Modify SL/TP:**

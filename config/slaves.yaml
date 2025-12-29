@@ -1,16 +1,4 @@
 slaves:
-  - name: "FN-100k"
-    address: "0.0.0.0:5050"
-    multiplier: 1.0
   - name: "FN-200k"
-    address: "0.0.0.0:5051"
+    address: "0.0.0.0:5050"
     multiplier: 2.0
-  - name: "FTMO-200k"
-    address: "0.0.0.0:5052"
-    multiplier: 2.0
-  - name: "FTMO-200k"
-    address: "0.0.0.0:5053"
-    multiplier: 2.0
-  - name: "PEPPERSTONE"
-    address: "0.0.0.0:5054"
-    multiplier: 0.1
