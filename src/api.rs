@@ -244,15 +244,15 @@ async fn delete_instance(
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => match manager.delete_instance(&name, params.force).await {
             Ok(()) => {
-                // Trigger worker reload to reflect the deletion
-                if let Err(e) = state.worker_command_tx.send(WorkerCommand::Reload).await {
-                    eprintln!("[API] Failed to send reload command: {}", e);
+                // Stop only the specific worker for the deleted instance
+                if let Err(e) = state.worker_command_tx.send(WorkerCommand::Stop(name.clone())).await {
+                    eprintln!("[API] Failed to send stop command: {}", e);
                 }
                 
                 Json(ApiResponse {
                     success: true,
                     data: serde_json::json!({
-                        "message": format!("Instance '{}' deleted successfully. Workers reloading...", name)
+                        "message": format!("Instance '{}' deleted successfully. Worker stopped.", name)
                     }),
                 })
                 .into_response()
