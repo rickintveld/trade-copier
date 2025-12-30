@@ -82,6 +82,11 @@ pub async fn run_worker(
                 Ok((stream, addr)) => {
                     println!("[WORKER:{}] MT5 receiver connected from {}", name_clone, addr);
                     *connection_clone.lock().await = Some(stream);
+                    
+                    // Update mt5_connected to true
+                    if let Err(e) = db_clone.update_mt5_connected(&address_clone, true).await {
+                        eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", name_clone, e);
+                    }
                 }
                 Err(e) => {
                     let error_msg = format!("Failed to accept connection: {}", e);
@@ -131,7 +136,7 @@ pub async fn run_worker(
                 );
 
                     // Send trade to connected MT5 receiver and measure latency
-                    match send_trade(&connection, &slave.name, &trade).await {
+                    match send_trade(&connection, &slave.name, &trade, &db, &slave.address).await {
                         Ok(latency_us) => {
                             println!("[WORKER:{}] Trade sent successfully, latency: {}µs", slave.name, latency_us);
                             
@@ -285,6 +290,11 @@ async fn monitor_wine_process(
                             eprintln!("[WORKER:{}] Failed to update state: {}", worker_name, e);
                         }
                         
+                        // Update mt5_connected to false
+                        if let Err(e) = db.update_mt5_connected(&address, false).await {
+                            eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, e);
+                        }
+                        
                         // Log warning
                         if let Err(e) = db.insert_worker_error(
                             &address,
@@ -335,6 +345,8 @@ async fn send_trade(
     connection: &Arc<Mutex<Option<tokio::net::TcpStream>>>,
     worker_name: &str,
     trade: &Trade,
+    db: &Arc<Database>,
+    address: &str,
 ) -> Result<u64> {
     let mut conn_guard = connection.lock().await;
     
@@ -360,6 +372,12 @@ async fn send_trade(
                         // Connection closed
                         eprintln!("[WORKER:{}] Connection closed while waiting for acknowledgment", worker_name);
                         *conn_guard = None;
+                        
+                        // Update mt5_connected to false
+                        if let Err(e) = db.update_mt5_connected(address, false).await {
+                            eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, e);
+                        }
+                        
                         Err(anyhow::anyhow!("Connection closed"))
                     }
                     Ok(_) => {
@@ -371,6 +389,12 @@ async fn send_trade(
                     Err(e) => {
                         eprintln!("[WORKER:{}] Read error: {}", worker_name, e);
                         *conn_guard = None;
+                        
+                        // Update mt5_connected to false
+                        if let Err(db_err) = db.update_mt5_connected(address, false).await {
+                            eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
+                        }
+                        
                         Err(anyhow::anyhow!("Failed to read acknowledgment: {}", e))
                     }
                 }
@@ -378,6 +402,12 @@ async fn send_trade(
             Err(e) => {
                 eprintln!("[WORKER:{}] Write error, connection lost: {}", worker_name, e);
                 *conn_guard = None; // Clear dead connection
+                
+                // Update mt5_connected to false
+                if let Err(db_err) = db.update_mt5_connected(address, false).await {
+                    eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
+                }
+                
                 Err(anyhow::anyhow!("Connection lost: {}", e))
             }
         }

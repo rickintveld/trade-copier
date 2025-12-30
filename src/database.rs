@@ -59,6 +59,7 @@ impl Database {
                     last_error TEXT,
                     latency_us INTEGER,
                     wine_prefix TEXT,
+                    mt5_connected BOOLEAN NOT NULL DEFAULT 0,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )",
@@ -230,6 +231,26 @@ impl Database {
         Ok(())
     }
     
+    pub async fn update_mt5_connected(
+        &self,
+        address: &str,
+        connected: bool,
+    ) -> Result<()> {
+        let address = address.to_string();
+        
+        self.conn.call(move |conn| {
+            conn.execute(
+                "UPDATE workers 
+                 SET mt5_connected = ?1, updated_at = CURRENT_TIMESTAMP
+                 WHERE address = ?2",
+                rusqlite::params![connected, &address],
+            )?;
+            Ok(())
+        }).await?;
+        
+        Ok(())
+    }
+    
     pub async fn insert_trade(
         &self,
         address: &str,
@@ -331,7 +352,7 @@ impl Database {
     pub async fn get_all_workers(&self) -> Result<Vec<WorkerRecord>> {
         let result = self.conn.call(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, address, multiplier, state, last_error, latency_us, wine_prefix, created_at, updated_at 
+                "SELECT id, name, address, multiplier, state, last_error, latency_us, wine_prefix, mt5_connected, created_at, updated_at 
                  FROM workers ORDER BY address, created_at DESC"
             )?;
             
@@ -345,8 +366,9 @@ impl Database {
                     last_error: row.get(5)?,
                     latency_us: row.get(6)?,
                     wine_prefix: row.get(7)?,
-                    created_at: row.get(8)?,
-                    updated_at: row.get(9)?,
+                    mt5_connected: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
                 })
             })?.collect::<Result<Vec<_>, _>>()?;
             
@@ -551,7 +573,7 @@ impl Database {
         
         let result = self.conn.call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, address, multiplier, state, last_error, latency_us, wine_prefix, created_at, updated_at
+                "SELECT id, name, address, multiplier, state, last_error, latency_us, wine_prefix, mt5_connected, created_at, updated_at
                  FROM workers WHERE name = ?1"
             )?;
             
@@ -566,8 +588,9 @@ impl Database {
                     last_error: row.get(5)?,
                     latency_us: row.get(6)?,
                     wine_prefix: row.get(7)?,
-                    created_at: row.get(8)?,
-                    updated_at: row.get(9)?,
+                    mt5_connected: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
                 }))
             } else {
                 Ok(None)
@@ -590,6 +613,7 @@ pub struct WorkerRecord {
     pub last_error: Option<String>,
     pub latency_us: Option<i64>,
     pub wine_prefix: Option<String>,
+    pub mt5_connected: bool,
     pub created_at: String,
     pub updated_at: String,
 }
