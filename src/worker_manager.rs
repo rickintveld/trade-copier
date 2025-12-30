@@ -13,6 +13,8 @@ use crate::worker;
 pub enum WorkerCommand {
     /// Reload all workers from database
     Reload,
+    /// Stop a specific worker by name
+    Stop(String),
 }
 
 /// Manages the lifecycle of worker tasks
@@ -117,6 +119,37 @@ impl WorkerManager {
         workers.insert(worker_cfg.name, worker_handle);
     }
 
+    /// Stop a specific worker by name
+    pub async fn stop_worker(&self, name: &str) -> Result<()> {
+        let mut workers = self.workers.write().await;
+        
+        if let Some(worker) = workers.remove(name) {
+            println!("[WORKER_MANAGER] Stopping worker '{}'", name);
+            
+            // Send shutdown signal
+            let _ = worker.shutdown_tx.send(true);
+            
+            // Wait for worker to finish with timeout
+            let shutdown_timeout = tokio::time::Duration::from_secs(5);
+            match tokio::time::timeout(shutdown_timeout, worker.handle).await {
+                Ok(Ok(())) => {
+                    println!("[WORKER_MANAGER] Worker '{}' stopped successfully", name);
+                    Ok(())
+                }
+                Ok(Err(e)) => {
+                    eprintln!("[WORKER_MANAGER] Worker '{}' error: {}", name, e);
+                    Err(anyhow::anyhow!("Worker task error: {}", e))
+                }
+                Err(_) => {
+                    eprintln!("[WORKER_MANAGER] Worker '{}' stop timeout", name);
+                    Err(anyhow::anyhow!("Worker stop timeout"))
+                }
+            }
+        } else {
+            Err(anyhow::anyhow!("Worker '{}' not found", name))
+        }
+    }
+    
     /// Stop all workers
     async fn stop_all_workers(&self) {
         let mut workers = self.workers.write().await;
@@ -167,6 +200,11 @@ impl WorkerManager {
                 WorkerCommand::Reload => {
                     if let Err(e) = self.reload_workers().await {
                         eprintln!("[WORKER_MANAGER] Failed to reload workers: {}", e);
+                    }
+                }
+                WorkerCommand::Stop(name) => {
+                    if let Err(e) = self.stop_worker(&name).await {
+                        eprintln!("[WORKER_MANAGER] Failed to stop worker '{}': {}", name, e);
                     }
                 }
             }

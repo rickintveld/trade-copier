@@ -70,6 +70,7 @@ pub async fn run_api(db: Arc<Database>, worker_command_tx: mpsc::Sender<WorkerCo
         .route("/api/instances", get(get_instances).post(create_instance))
         .route("/api/instances/:name", delete(delete_instance))
         .route("/api/instances/:name/start", post(start_instance))
+        .route("/api/instances/:name/stop", post(stop_instance))
         .route("/api/instances/start-all", post(start_all_instances))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -308,6 +309,31 @@ async fn start_instance(
         )
             .into_response(),
     }
+}
+
+async fn stop_instance(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    // Send stop command to worker manager
+    if let Err(e) = state.worker_command_tx.send(WorkerCommand::Stop(name.clone())).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError {
+                success: false,
+                error: format!("Failed to send stop command: {}", e),
+            }),
+        )
+            .into_response();
+    }
+    
+    Json(ApiResponse {
+        success: true,
+        data: serde_json::json!({
+            "message": format!("Worker '{}' stop command sent successfully", name)
+        }),
+    })
+    .into_response()
 }
 
 async fn start_all_instances(State(state): State<AppState>) -> impl IntoResponse {
