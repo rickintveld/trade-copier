@@ -16,7 +16,6 @@ Cargo.lock
 Thumbs.db
 
 # MetaTrader
-*.ex5
 *.log
 
 # Database

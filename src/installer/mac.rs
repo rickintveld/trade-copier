@@ -61,6 +61,12 @@ impl MacInstanceManager {
             eprintln!("[INSTALLER] You can delete it with: DELETE /api/instances/{}", name);
             return Err(e);
         }
+        
+        // Copy Expert Advisors after successful installation
+        if let Err(e) = super::common::copy_expert_advisors(&prefix_path) {
+            eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
+            eprintln!("[INSTALLER] You can manually copy them later from ./mql5/Trading Rocket/");
+        }
 
         // Create instance metadata
         let instance = Instance::new(id, name.clone(), address.clone(), multiplier, prefix_path.clone());
@@ -126,6 +132,11 @@ impl MacInstanceManager {
         let config = InstanceConfig::load(&self.config_path)?;
         let instance = config.get_instance(name)
             .context(format!("Instance '{}' not found", name))?;
+        
+        // Copy Expert Advisors before starting
+        if let Err(e) = super::common::copy_expert_advisors(&instance.path) {
+            eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
+        }
 
         let mt5_exe = self.mt5_executable(&instance.path);
         launch_mt5(&instance.path, &mt5_exe, None).await?;
@@ -147,6 +158,11 @@ impl MacInstanceManager {
 
         println!("[INSTALLER] Starting {} instance(s)...", config.instances.len());
         for instance in &config.instances {
+            // Copy Expert Advisors before starting
+            if let Err(e) = super::common::copy_expert_advisors(&instance.path) {
+                eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors for '{}': {}", instance.name, e);
+            }
+            
             let mt5_exe = self.mt5_executable(&instance.path);
             launch_mt5(&instance.path, &mt5_exe, db.clone()).await?;
             println!("[INSTALLER] Started instance '{}'", instance.name);
