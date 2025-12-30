@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
             let (total_workers, active_workers) = match metrics_db.get_all_workers().await {
                 Ok(workers) => {
                     let total = workers.len() as i32;
-                    let active = workers.iter().filter(|w| w.state == "activated").count() as i32;
+                    let active = workers.iter().filter(|w| w.state == "active").count() as i32;
                     (total, active)
                 }
                 Err(_) => (0, 0),
