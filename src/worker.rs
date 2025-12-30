@@ -317,17 +317,17 @@ async fn monitor_wine_process(
 
 /// Check if a Wine process is running for the given prefix
 async fn is_wine_running(wine_prefix: &PathBuf) -> Result<bool> {
-    // Check for any wine processes with this WINEPREFIX
-    let prefix_str = wine_prefix.display().to_string();
+    // Construct the path to the MT5 executable
+    let mt5_path = wine_prefix.join("drive_c/Program Files/MetaTrader 5/terminal64.exe");
+    let mt5_path_str = mt5_path.display().to_string();
     
-    // Use ps to list all processes and grep for our prefix
-    // This is more reliable than pgrep for detecting Wine processes
-    let output = tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("ps aux | grep -i 'WINEPREFIX={}' | grep -v grep", prefix_str))
+    // Use pgrep to check if the executable is running
+    let output = tokio::process::Command::new("pgrep")
+        .arg("-f")
+        .arg(&mt5_path_str)
         .output()
         .await?;
-    
+
     Ok(output.status.success() && !output.stdout.is_empty())
 }
 
