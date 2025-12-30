@@ -146,35 +146,6 @@ impl MacInstanceManager {
         Ok(())
     }
 
-    pub async fn start_all_instances(&self, db: Option<Arc<Database>>) -> Result<()> {
-        check_wine_installed()?;
-
-        let config = InstanceConfig::load(&self.config_path)?;
-
-        if config.instances.is_empty() {
-            println!("[INSTALLER] No instances found");
-            return Ok(());
-        }
-
-        println!("[INSTALLER] Starting {} instance(s)...", config.instances.len());
-        for instance in &config.instances {
-            // Copy Expert Advisors before starting
-            if let Err(e) = super::common::copy_expert_advisors(&instance.path) {
-                eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors for '{}': {}", instance.name, e);
-            }
-            
-            let mt5_exe = self.mt5_executable(&instance.path);
-            launch_mt5(&instance.path, &mt5_exe, db.clone()).await?;
-            println!("[INSTALLER] Started instance '{}'", instance.name);
-            // Small delay between launches
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        }
-
-        println!("[INSTALLER] All instances started");
-
-        Ok(())
-    }
-
     pub async fn list_instances(&self) -> Result<Vec<Instance>> {
         let config = InstanceConfig::load(&self.config_path)?;
         Ok(config.instances.clone())

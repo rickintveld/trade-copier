@@ -128,11 +128,6 @@ impl InstanceManager {
         self.inner.start_instance(name).await
     }
 
-    /// Start all MT5 instances
-    pub async fn start_all_instances(&self) -> Result<()> {
-        self.inner.start_all_instances(Some(self.db.clone())).await
-    }
-
     /// List all MT5 instances
     pub async fn list_instances(&self) -> Result<Vec<Instance>> {
         self.inner.list_instances().await

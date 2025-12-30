@@ -179,26 +179,6 @@ impl WindowsInstanceManager {
         Ok(())
     }
 
-    pub async fn start_all_instances(&self, _db: Option<std::sync::Arc<crate::database::Database>>) -> Result<()> {
-        let config = InstanceConfig::load(&self.config_path)?;
-
-        if config.instances.is_empty() {
-            println!("[INSTALLER] No instances found");
-            return Ok(());
-        }
-
-        println!("[INSTALLER] Starting {} instance(s)...", config.instances.len());
-        for instance in &config.instances {
-            self.start_instance(&instance.name).await?;
-            // Small delay between launches
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        }
-
-        println!("[INSTALLER] All instances started");
-
-        Ok(())
-    }
-
     pub async fn list_instances(&self) -> Result<Vec<Instance>> {
         let config = InstanceConfig::load(&self.config_path)?;
         Ok(config.instances.clone())

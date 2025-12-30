@@ -71,7 +71,6 @@ pub async fn run_api(db: Arc<Database>, worker_command_tx: mpsc::Sender<WorkerCo
         .route("/api/instances/:name", delete(delete_instance))
         .route("/api/instances/:name/start", post(start_instance))
         .route("/api/instances/:name/stop", post(stop_instance))
-        .route("/api/instances/start-all", post(start_all_instances))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -282,15 +281,30 @@ async fn start_instance(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
+    // Start the MT5 instance first
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => match manager.start_instance(&name).await {
-            Ok(()) => Json(ApiResponse {
-                success: true,
-                data: serde_json::json!({
-                    "message": format!("Instance '{}' started successfully", name)
-                }),
-            })
-            .into_response(),
+            Ok(()) => {
+                // Now send start command to worker manager
+                if let Err(e) = state.worker_command_tx.send(WorkerCommand::Start(name.clone())).await {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ApiError {
+                            success: false,
+                            error: format!("MT5 instance started but failed to start worker: {}", e),
+                        }),
+                    )
+                        .into_response();
+                }
+                
+                Json(ApiResponse {
+                    success: true,
+                    data: serde_json::json!({
+                        "message": format!("Instance '{}' and worker started successfully", name)
+                    }),
+                })
+                .into_response()
+            }
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError {
@@ -336,40 +350,4 @@ async fn stop_instance(
     .into_response()
 }
 
-async fn start_all_instances(State(state): State<AppState>) -> impl IntoResponse {
-    match InstanceManager::new(state.db.clone()) {
-        Ok(manager) => match manager.start_all_instances().await {
-            Ok(()) => {
-                // Trigger worker reload to restart all workers
-                if let Err(e) = state.worker_command_tx.send(WorkerCommand::Reload).await {
-                    eprintln!("[API] Failed to send reload command: {}", e);
-                }
-                
-                Json(ApiResponse {
-                    success: true,
-                    data: serde_json::json!({
-                        "message": "All instances started successfully. Workers reloading..."
-                    }),
-                })
-                .into_response()
-            }
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError {
-                    success: false,
-                    error: e.to_string(),
-                }),
-            )
-                .into_response(),
-        },
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError {
-                success: false,
-                error: format!("Failed to initialize instance manager: {}", e),
-            }),
-        )
-            .into_response(),
-    }
-}
 

@@ -13,6 +13,8 @@ use crate::worker;
 pub enum WorkerCommand {
     /// Reload all workers from database
     Reload,
+    /// Start a specific worker by name
+    Start(String),
     /// Stop a specific worker by name
     Stop(String),
 }
@@ -85,6 +87,29 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// Start a specific worker by name (load from database and spawn)
+    pub async fn start_worker(&self, name: &str) -> Result<()> {
+        // Check if worker is already running
+        {
+            let workers = self.workers.read().await;
+            if workers.contains_key(name) {
+                return Err(anyhow::anyhow!("Worker '{}' is already running", name));
+            }
+        }
+        
+        // Load worker configuration from database
+        let workers = self.db.get_worker_configs().await?;
+        let worker_cfg = workers.iter()
+            .find(|w| w.name == name)
+            .ok_or_else(|| anyhow::anyhow!("Worker '{}' not found in database", name))?;
+        
+        println!("[WORKER_MANAGER] Starting worker '{}' @ {}", worker_cfg.name, worker_cfg.address);
+        
+        self.spawn_worker(worker_cfg.clone()).await;
+        
+        Ok(())
+    }
+    
     /// Spawn a single worker
     async fn spawn_worker(&self, worker_cfg: crate::database::WorkerConfig) {
         let rx = self.trade_tx.subscribe();
@@ -119,8 +144,8 @@ impl WorkerManager {
         workers.insert(worker_cfg.name, worker_handle);
     }
 
-    /// Stop a specific worker by name
-    pub async fn stop_worker(&self, name: &str) -> Result<()> {
+    /// Stop a specific worker by name (renamed to stop_worker_internal to avoid conflict)
+    async fn stop_worker_internal(&self, name: &str) -> Result<()> {
         let mut workers = self.workers.write().await;
         
         if let Some(worker) = workers.remove(name) {
@@ -202,8 +227,13 @@ impl WorkerManager {
                         eprintln!("[WORKER_MANAGER] Failed to reload workers: {}", e);
                     }
                 }
+                WorkerCommand::Start(name) => {
+                    if let Err(e) = self.start_worker(&name).await {
+                        eprintln!("[WORKER_MANAGER] Failed to start worker '{}': {}", name, e);
+                    }
+                }
                 WorkerCommand::Stop(name) => {
-                    if let Err(e) = self.stop_worker(&name).await {
+                    if let Err(e) = self.stop_worker_internal(&name).await {
                         eprintln!("[WORKER_MANAGER] Failed to stop worker '{}': {}", name, e);
                     }
                 }

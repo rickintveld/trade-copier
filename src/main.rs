@@ -40,9 +40,6 @@ async fn main() -> Result<()> {
     );
     let worker_manager = Arc::new(worker_manager);
     
-    // Load and start all workers
-    worker_manager.load_workers().await?;
-    
     // Get worker command sender for API
     let worker_command_tx = worker_manager.command_sender();
     
