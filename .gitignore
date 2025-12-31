@@ -1,4 +1,5 @@
 # Rust
+/src-tauri/target
 /target/
 Cargo.lock
 **/*.rs.bk
@@ -21,3 +22,4 @@ Thumbs.db
 # Database
 trade_copier.db
 trade_copier.db-*
+node_modules
