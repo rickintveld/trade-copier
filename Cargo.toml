@@ -3,6 +3,10 @@ name = "trade-copier"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "trade-copier"
+path = "src/main.rs"
+
 [dependencies]
 tokio = { version = "1.40", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

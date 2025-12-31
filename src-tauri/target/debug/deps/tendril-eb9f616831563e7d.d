@@ -1,0 +1,11 @@
+/Users/rickintveld/Projects/trade-copier/src-tauri/target/debug/deps/tendril-eb9f616831563e7d.d: /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/lib.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/fmt.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/stream.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/buf32.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/tendril.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/utf8_decode.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/util.rs
+
+/Users/rickintveld/Projects/trade-copier/src-tauri/target/debug/deps/libtendril-eb9f616831563e7d.rmeta: /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/lib.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/fmt.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/stream.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/buf32.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/tendril.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/utf8_decode.rs /Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/util.rs
+
+/Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/lib.rs:
+/Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/fmt.rs:
+/Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/stream.rs:
+/Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/buf32.rs:
+/Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/tendril.rs:
+/Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/utf8_decode.rs:
+/Users/rickintveld/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tendril-0.4.3/src/util.rs:
