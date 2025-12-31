@@ -11,8 +11,6 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use crate::database::Database;
 
-pub use common::Instance;
-
 /// Platform-agnostic instance manager
 pub struct InstanceManager {
     #[cfg(target_os = "macos")]
@@ -55,7 +53,7 @@ impl InstanceManager {
         address: String,
         multiplier: f64,
         reload_tx: Option<mpsc::Sender<crate::worker_manager::WorkerCommand>>,
-    ) -> Result<Instance> {
+    ) -> Result<crate::database::WorkerRecord> {
         use crate::database::{WorkerState};
         
         // 1) Create worker in DB with 'installing' state so API can return quickly
@@ -104,32 +102,27 @@ impl InstanceManager {
             }
         });
         
-        // 3) Return a lightweight Instance-like object; path is unknown until install completes
-        // To satisfy current API, we can synthesize an Instance with a placeholder path
+        // 3) Return the worker record from database
         // Consumers should poll GET /api/instances or check worker state for progress.
-        let placeholder_path = std::path::PathBuf::from("<installing>");
-        let instance = common::Instance::new(0, name, address, multiplier, placeholder_path);
-        Ok(instance)
+        let worker = self.db.get_worker_by_name(&name).await?
+            .ok_or_else(|| anyhow::anyhow!("Worker not found after creation"))?;
+        Ok(worker)
     }
 
     /// Delete an existing MT5 instance
     pub async fn delete_instance(&self, name: &str, force: bool) -> Result<()> {
-        // Delete instance files first
-        self.inner.delete_instance(name, force).await?;
-        
-        // Remove from database
-        self.db.delete_worker(name).await?;
-        
+        // Delete instance files and database entry
+        self.inner.delete_instance(name, force, self.db.clone()).await?;
         Ok(())
     }
 
     /// Start a specific MT5 instance
     pub async fn start_instance(&self, name: &str) -> Result<()> {
-        self.inner.start_instance(name).await
+        self.inner.start_instance(name, self.db.clone()).await
     }
 
     /// List all MT5 instances
-    pub async fn list_instances(&self) -> Result<Vec<Instance>> {
-        self.inner.list_instances().await
+    pub async fn list_instances(&self) -> Result<Vec<crate::database::WorkerRecord>> {
+        self.inner.list_instances(self.db.clone()).await
     }
 }

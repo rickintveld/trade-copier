@@ -4,26 +4,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use super::common::{Instance, InstanceConfig};
 use crate::database::{Database, WorkerState};
 
-pub struct MacInstanceManager {
-    config_path: PathBuf,
-}
+pub struct MacInstanceManager {}
 
 impl MacInstanceManager {
     pub fn new() -> Result<Self> {
-        let home = dirs::home_dir().context("Could not find home directory")?;
-        let config_dir = home.join(".mt5-manager");
-        let config_path = config_dir.join("instances.json");
-
-        // Create config directory if it doesn't exist
-        if !config_dir.exists() {
-            fs::create_dir_all(&config_dir)
-                .context("Failed to create config directory")?;
-        }
-
-        Ok(Self { config_path })
+        Ok(Self {})
     }
 
     pub async fn create_instance(
@@ -33,19 +20,18 @@ impl MacInstanceManager {
         multiplier: f64,
         installer_path: &Path,
         db: Arc<Database>,
-    ) -> Result<Instance> {
+    ) -> Result<()> {
         // Check Wine is installed
         check_wine_installed()?;
 
-        let mut config = InstanceConfig::load(&self.config_path)?;
-
-        // Check if instance name already exists
-        if config.get_instance(&name).is_some() {
+        // Check if instance name already exists in database
+        if db.get_worker_by_name(&name).await?.is_some() {
             bail!("Instance '{}' already exists", name);
         }
 
-        // Generate instance ID and prefix path
-        let id = config.next_id();
+        // Generate prefix path using worker count + 1 as ID
+        let workers = db.get_worker_configs().await?;
+        let id = workers.len() + 1;
         let prefix_path = self.generate_prefix_path(id)?;
 
         println!("[INSTALLER] Creating Wine prefix at {:?}", prefix_path);
@@ -68,13 +54,6 @@ impl MacInstanceManager {
             eprintln!("[INSTALLER] You can manually copy them later from ./mql5/Trading Rocket/");
         }
 
-        // Create instance metadata
-        let instance = Instance::new(id, name.clone(), address.clone(), multiplier, prefix_path.clone());
-
-        // Save instance to local config
-        config.add_instance(instance.clone())?;
-        config.save(&self.config_path)?;
-        
         // Save worker to database with wine_prefix
         let prefix_str = prefix_path.to_string_lossy().to_string();
         db.upsert_worker(
@@ -93,16 +72,13 @@ impl MacInstanceManager {
         println!("[INSTALLER]   Multiplier: {}", multiplier);
         println!("[INSTALLER] NOTE: Worker will be activated automatically after installation completes");
 
-        Ok(instance)
+        Ok(())
     }
 
-    pub async fn delete_instance(&self, name: &str, force: bool) -> Result<()> {
-        let mut config = InstanceConfig::load(&self.config_path)?;
-
-        // Get instance
-        let instance = config.get_instance(name)
-            .context(format!("Instance '{}' not found", name))?
-            .clone();
+    pub async fn delete_instance(&self, name: &str, force: bool, db: Arc<Database>) -> Result<()> {
+        // Get worker from database
+        let worker = db.get_worker_by_name(name).await?
+            .context(format!("Instance '{}' not found", name))?;
 
         if !force {
             println!("[INSTALLER] Warning: This will delete instance '{}' and all its data", name);
@@ -110,15 +86,17 @@ impl MacInstanceManager {
             bail!("Deletion cancelled - use force=true to confirm");
         }
 
-        // Remove from local config first
-        config.remove_instance(name)?;
-        config.save(&self.config_path)?;
-
-        // Delete Wine prefix directory
-        if instance.path.exists() {
-            fs::remove_dir_all(&instance.path)?;
-            println!("[INSTALLER] Removed Wine prefix: {:?}", instance.path);
+        // Delete Wine prefix directory if it exists
+        if let Some(wine_prefix) = &worker.wine_prefix {
+            let prefix_path = PathBuf::from(wine_prefix);
+            if prefix_path.exists() {
+                fs::remove_dir_all(&prefix_path)?;
+                println!("[INSTALLER] Removed Wine prefix: {:?}", prefix_path);
+            }
         }
+
+        // Remove from database
+        db.delete_worker(name).await?;
 
         println!("[INSTALLER] Instance '{}' deleted successfully", name);
         println!("[INSTALLER] NOTE: Workers will be reloaded automatically");
@@ -126,29 +104,32 @@ impl MacInstanceManager {
         Ok(())
     }
 
-    pub async fn start_instance(&self, name: &str) -> Result<()> {
+    pub async fn start_instance(&self, name: &str, db: Arc<Database>) -> Result<()> {
         check_wine_installed()?;
 
-        let config = InstanceConfig::load(&self.config_path)?;
-        let instance = config.get_instance(name)
+        // Get worker from database
+        let worker = db.get_worker_by_name(name).await?
             .context(format!("Instance '{}' not found", name))?;
         
+        let wine_prefix = worker.wine_prefix
+            .context("Instance does not have a wine_prefix configured")?;
+        let prefix_path = PathBuf::from(wine_prefix);
+        
         // Copy Expert Advisors before starting
-        if let Err(e) = super::common::copy_expert_advisors(&instance.path) {
+        if let Err(e) = super::common::copy_expert_advisors(&prefix_path) {
             eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
         }
 
-        let mt5_exe = self.mt5_executable(&instance.path);
-        launch_mt5(&instance.path, &mt5_exe, None).await?;
+        let mt5_exe = self.mt5_executable(&prefix_path);
+        launch_mt5(&prefix_path, &mt5_exe, None).await?;
 
         println!("[INSTALLER] Instance '{}' started", name);
 
         Ok(())
     }
 
-    pub async fn list_instances(&self) -> Result<Vec<Instance>> {
-        let config = InstanceConfig::load(&self.config_path)?;
-        Ok(config.instances.clone())
+    pub async fn list_instances(&self, db: Arc<Database>) -> Result<Vec<crate::database::WorkerRecord>> {
+        db.get_all_workers().await
     }
 
     fn generate_prefix_path(&self, id: usize) -> Result<PathBuf> {

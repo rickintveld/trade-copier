@@ -5,47 +5,14 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
-use super::common::{Instance, InstanceConfig};
 use crate::database::{Database, WorkerState};
 use std::sync::Arc;
 
-pub struct WindowsInstanceManager {
-    config_path: PathBuf,
-}
+pub struct WindowsInstanceManager {}
 
 impl WindowsInstanceManager {
     pub fn new() -> Result<Self> {
-        #[cfg(target_os = "windows")]
-        {
-            let appdata = std::env::var("APPDATA")
-                .context("APPDATA environment variable not found")?;
-            let config_path = PathBuf::from(appdata)
-                .join("mt5-manager")
-                .join("config.json");
-            
-            if let Some(parent) = config_path.parent() {
-                fs::create_dir_all(parent)
-                    .context("Failed to create config directory")?;
-            }
-            
-            Ok(Self { config_path })
-        }
-        
-        #[cfg(not(target_os = "windows"))]
-        {
-            let home = std::env::var("HOME")
-                .context("HOME environment variable not found")?;
-            let config_path = PathBuf::from(home)
-                .join(".mt5-manager")
-                .join("config.json");
-            
-            if let Some(parent) = config_path.parent() {
-                fs::create_dir_all(parent)
-                    .context("Failed to create config directory")?;
-            }
-            
-            Ok(Self { config_path })
-        }
+        Ok(Self {})
     }
 
     pub async fn create_instance(
@@ -55,16 +22,13 @@ impl WindowsInstanceManager {
         multiplier: f64,
         installer_path: &Path,
         db: Arc<Database>,
-    ) -> Result<Instance> {
-        let mut config = InstanceConfig::load(&self.config_path)?;
-
-        // Check if instance name already exists
-        if config.get_instance(&name).is_some() {
+    ) -> Result<()> {
+        // Check if instance name already exists in database
+        if db.get_worker_by_name(&name).await?.is_some() {
             bail!("Instance '{}' already exists", name);
         }
 
-        // Generate instance ID and path
-        let id = config.next_id();
+        // Generate instance path
         let instance_path = self.generate_instance_path(&name)?;
 
         println!("[INSTALLER] Creating directory at {:?}", instance_path);
@@ -89,13 +53,6 @@ impl WindowsInstanceManager {
             println!("[INSTALLER] [DRY RUN - not on Windows] Would install MT5 to {:?}", instance_path);
         }
 
-        // Create instance metadata
-        let instance = Instance::new(id, name.clone(), address.clone(), multiplier, instance_path.clone());
-
-        // Save instance to local config
-        config.add_instance(instance.clone())?;
-        config.save(&self.config_path)?;
-        
         // Save worker to database with instance path (Windows doesn't use Wine)
         let path_str = instance_path.to_string_lossy().to_string();
         db.upsert_worker(
@@ -108,22 +65,18 @@ impl WindowsInstanceManager {
         ).await?;
 
         println!("[INSTALLER] Instance '{}' created successfully!", name);
-        println!("[INSTALLER]   ID: {}", id);
         println!("[INSTALLER]   Path: {:?}", instance_path);
         println!("[INSTALLER]   Address: {}", address);
         println!("[INSTALLER]   Multiplier: {}", multiplier);
         println!("[INSTALLER] NOTE: Worker will be activated automatically after installation completes");
 
-        Ok(instance)
+        Ok(())
     }
 
-    pub async fn delete_instance(&self, name: &str, force: bool) -> Result<()> {
-        let mut config = InstanceConfig::load(&self.config_path)?;
-
-        // Get instance
-        let instance = config.get_instance(name)
-            .context(format!("Instance '{}' not found", name))?
-            .clone();
+    pub async fn delete_instance(&self, name: &str, force: bool, db: Arc<Database>) -> Result<()> {
+        // Get worker from database
+        let worker = db.get_worker_by_name(name).await?
+            .context(format!("Instance '{}' not found", name))?;
 
         if !force {
             println!("[INSTALLER] Warning: This will delete instance '{}' and all its data", name);
@@ -131,15 +84,17 @@ impl WindowsInstanceManager {
             bail!("Deletion cancelled - use force=true to confirm");
         }
 
-        // Remove from local config first
-        config.remove_instance(name)?;
-        config.save(&self.config_path)?;
-
-        // Delete instance directory
-        if instance.path.exists() {
-            fs::remove_dir_all(&instance.path)?;
-            println!("[INSTALLER] Removed directory: {:?}", instance.path);
+        // Delete instance directory if it exists
+        if let Some(wine_prefix) = &worker.wine_prefix {
+            let instance_path = PathBuf::from(wine_prefix);
+            if instance_path.exists() {
+                fs::remove_dir_all(&instance_path)?;
+                println!("[INSTALLER] Removed directory: {:?}", instance_path);
+            }
         }
+
+        // Remove from database
+        db.delete_worker(name).await?;
 
         println!("[INSTALLER] Instance '{}' deleted successfully", name);
         println!("[INSTALLER] NOTE: Workers will be reloaded automatically");
@@ -147,12 +102,16 @@ impl WindowsInstanceManager {
         Ok(())
     }
 
-    pub async fn start_instance(&self, name: &str) -> Result<()> {
-        let config = InstanceConfig::load(&self.config_path)?;
-        let instance = config.get_instance(name)
+    pub async fn start_instance(&self, name: &str, db: Arc<Database>) -> Result<()> {
+        // Get worker from database
+        let worker = db.get_worker_by_name(name).await?
             .context(format!("Instance '{}' not found", name))?;
+        
+        let wine_prefix = worker.wine_prefix
+            .context("Instance does not have a path configured")?;
+        let instance_path = PathBuf::from(wine_prefix);
 
-        let exe_path = instance.path.join("terminal64.exe");
+        let exe_path = instance_path.join("terminal64.exe");
 
         if !exe_path.exists() {
             bail!(
@@ -179,9 +138,8 @@ impl WindowsInstanceManager {
         Ok(())
     }
 
-    pub async fn list_instances(&self) -> Result<Vec<Instance>> {
-        let config = InstanceConfig::load(&self.config_path)?;
-        Ok(config.instances.clone())
+    pub async fn list_instances(&self, db: Arc<Database>) -> Result<Vec<crate::database::WorkerRecord>> {
+        db.get_all_workers().await
     }
 
     fn generate_instance_path(&self, name: &str) -> Result<PathBuf> {

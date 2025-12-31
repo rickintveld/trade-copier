@@ -567,7 +567,6 @@ impl Database {
     }
 
     /// Get a worker by name
-    #[allow(dead_code)]
     pub async fn get_worker_by_name(&self, name: &str) -> Result<Option<WorkerRecord>> {
         let name = name.to_string();
         
