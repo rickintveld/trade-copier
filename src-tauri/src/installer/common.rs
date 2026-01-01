@@ -147,59 +147,6 @@ pub fn copy_expert_advisors(wine_prefix: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Update common.ini file in MT5 Config directory to enable necessary settings
-pub fn update_common_ini(wine_prefix: &Path) -> Result<()> {
-    println!("[INSTALLER] Updating common.ini configuration");
-    
-    let config_file = wine_prefix.join("drive_c/Program Files/MetaTrader 5/Config/common.ini");
-    
-    // Check if the file exists
-    if !config_file.exists() {
-        anyhow::bail!("common.ini not found at {:?}", config_file);
-    }
-    
-    // Read the existing content
-    let content = fs::read_to_string(&config_file)
-        .context("Failed to read common.ini file")?;
-    
-    // Properties to update
-    let properties = [
-        ("AllowDllImport", "1"),
-        ("Enabled", "1"),
-        ("Account", "1"),
-        ("Profile", "1"),
-        ("WebRequest", "1"),
-        ("WebRequestUrl", "81EF84E8AEE7FB5A7AB27523D456ECAC7CEA13761B54"),
-    ];
-    
-    // Update each property
-    let mut updated_content = content;
-    for (key, value) in &properties {
-        // Look for the property line (format: key=oldvalue)
-        let pattern = format!("{}=", key);
-        
-        // Find and replace the line
-        updated_content = updated_content
-            .lines()
-            .map(|line| {
-                if line.starts_with(&pattern) {
-                    format!("{}={}", key, value)
-                } else {
-                    line.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-    }
-    
-    // Write the updated content back to the file
-    fs::write(&config_file, updated_content)
-        .context(format!("Failed to write updated common.ini to {:?}", config_file))?;
-    
-    println!("[INSTALLER] Successfully updated common.ini with required settings");
-    Ok(())
-}
-
 /// Copy Default.tpl template from ./mql5/Profiles/Templates/ to the MT5 Profiles/Templates directory
 /// and update the WorkerPort parameter with the port from the worker address
 pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result<()> {
