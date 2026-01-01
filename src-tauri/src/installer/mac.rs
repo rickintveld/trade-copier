@@ -152,8 +152,15 @@ impl MacInstanceManager {
     }
 
     fn generate_prefix_path(&self, id: usize) -> Result<PathBuf> {
-        let home = dirs::home_dir().context("Could not find home directory")?;
-        Ok(home.join(format!(".wine-mt5-instance{}", id)))
+        let app_data_dir = dirs::data_local_dir()
+            .context("Could not find local data directory")?
+            .join("trade-copier");
+        
+        // Ensure the app data directory exists
+        fs::create_dir_all(&app_data_dir)
+            .context("Failed to create app data directory")?;
+        
+        Ok(app_data_dir.join(format!("wine-mt5-instance{}", id)))
     }
 
     fn mt5_executable(&self, prefix_path: &Path) -> PathBuf {
