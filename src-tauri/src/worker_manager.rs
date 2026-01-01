@@ -55,6 +55,57 @@ impl WorkerManager {
         self.command_tx.clone()
     }
 
+    /// Sync database state with actual running workers on startup
+    /// Updates any workers marked as "active" in the database but not actually running
+    pub async fn sync_database_state(&self) -> Result<()> {
+        println!("🔄 Syncing worker database state with running workers...");
+        
+        // Get all workers from database
+        let all_workers = self.db.get_all_workers().await?;
+        
+        // Get currently running workers
+        let running_workers = self.workers.read().await;
+        
+        let mut synced_count = 0;
+        
+        for worker_record in all_workers {
+            // Check if worker is marked as active in database
+            if worker_record.state == "active" {
+                // Check if it's actually running
+                if !running_workers.contains_key(&worker_record.name) {
+                    // Worker is marked active but not running - update to inactive
+                    println!(
+                        "  ⚠️  Worker '{}' @ {} is marked active but not running, updating to inactive",
+                        worker_record.name, worker_record.address
+                    );
+                    
+                    if let Err(e) = self.db.update_worker_state(
+                        &worker_record.address,
+                        crate::database::WorkerState::Inactive,
+                        Some("Application restart detected - worker was not running"),
+                    ).await {
+                        eprintln!("[WORKER_MANAGER] Failed to update state for '{}': {}", worker_record.name, e);
+                    }
+                    
+                    // Set mt5_connected to false
+                    if let Err(e) = self.db.update_mt5_connected(&worker_record.address, false).await {
+                        eprintln!("[WORKER_MANAGER] Failed to update mt5_connected for '{}': {}", worker_record.name, e);
+                    }
+                    
+                    synced_count += 1;
+                }
+            }
+        }
+        
+        if synced_count > 0 {
+            println!("✅ Synced {} worker(s) to inactive state", synced_count);
+        } else {
+            println!("✅ All worker states are in sync");
+        }
+        
+        Ok(())
+    }
+    
     /// Load and start all workers from the database
     pub async fn load_workers(&self) -> Result<()> {
         let workers = self.db.get_worker_configs().await?;

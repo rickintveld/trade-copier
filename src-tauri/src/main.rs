@@ -52,6 +52,12 @@ async fn main() -> Result<()> {
         worker_command_tx: worker_command_tx.clone(),
     };
 
+    // Sync database state with actual running workers on startup
+    // This handles the case where the app crashed and workers are marked active but not running
+    if let Err(e) = worker_manager.sync_database_state().await {
+        eprintln!("[STARTUP] Failed to sync worker database state: {}", e);
+    }
+    
     // Spawn worker manager event loop
     let worker_manager_clone = worker_manager.clone();
     tokio::spawn(async move {

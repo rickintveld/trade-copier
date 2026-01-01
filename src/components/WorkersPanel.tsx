@@ -31,7 +31,7 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    address: '',
+    address: '0.0.0.0:5050',
     multiplier: '1.0'
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
