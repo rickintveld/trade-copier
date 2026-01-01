@@ -81,9 +81,16 @@ impl MacInstanceManager {
             bail!("Deletion cancelled - use force=true to confirm");
         }
 
-        // Delete Wine prefix directory if it exists
+        // Stop the Wine process if it's running
         if let Some(wine_prefix) = &worker.wine_prefix {
             let prefix_path = PathBuf::from(wine_prefix);
+            
+            // Kill Wine process
+            if let Err(e) = crate::worker::kill_wine_process(&prefix_path).await {
+                eprintln!("[INSTALLER] Warning: Failed to kill Wine process: {}", e);
+            }
+            
+            // Delete Wine prefix directory if it exists
             if prefix_path.exists() {
                 fs::remove_dir_all(&prefix_path)?;
                 println!("[INSTALLER] Removed Wine prefix: {:?}", prefix_path);
@@ -96,6 +103,23 @@ impl MacInstanceManager {
         println!("[INSTALLER] Instance '{}' deleted successfully", name);
         println!("[INSTALLER] NOTE: Workers will be reloaded automatically");
 
+        Ok(())
+    }
+
+    pub async fn stop_instance(&self, name: &str, db: Arc<Database>) -> Result<()> {
+        // Get worker from database
+        let worker = db.get_worker_by_name(name).await?
+            .context(format!("Instance '{}' not found", name))?;
+        
+        let wine_prefix = worker.wine_prefix
+            .context("Instance does not have a wine_prefix configured")?;
+        let prefix_path = PathBuf::from(wine_prefix);
+        
+        // Kill the Wine process
+        crate::worker::kill_wine_process(&prefix_path).await?;
+        
+        println!("[INSTALLER] Instance '{}' stopped", name);
+        
         Ok(())
     }
 

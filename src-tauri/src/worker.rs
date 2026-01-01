@@ -341,6 +341,79 @@ async fn is_wine_running(wine_prefix: &PathBuf) -> Result<bool> {
     Ok(output.status.success() && !output.stdout.is_empty())
 }
 
+/// Get the PID of the Wine process running for the given prefix
+async fn get_wine_pid(wine_prefix: &PathBuf) -> Result<Option<Vec<u32>>> {
+    // Construct the path to the MT5 executable
+    let mt5_path = wine_prefix.join("drive_c/Program Files/MetaTrader 5/terminal64.exe");
+    let mt5_path_str = mt5_path.display().to_string();
+    
+    // Use pgrep to get the PIDs
+    let output = tokio::process::Command::new("pgrep")
+        .arg("-f")
+        .arg(&mt5_path_str)
+        .output()
+        .await?;
+
+    if output.status.success() && !output.stdout.is_empty() {
+        let pids: Vec<u32> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+            .collect();
+        
+        if pids.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(pids))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+/// Kill the Wine process for the given prefix
+pub async fn kill_wine_process(wine_prefix: &PathBuf) -> Result<()> {
+    match get_wine_pid(wine_prefix).await? {
+        Some(pids) => {
+            println!("[WINE] Found {} Wine process(es) for prefix {:?}", pids.len(), wine_prefix);
+            
+            for pid in pids {
+                println!("[WINE] Killing process with PID: {}", pid);
+                
+                // Try SIGTERM first (graceful shutdown)
+                let result = tokio::process::Command::new("kill")
+                    .arg("-15")
+                    .arg(pid.to_string())
+                    .output()
+                    .await?;
+                
+                if !result.status.success() {
+                    eprintln!("[WINE] Failed to send SIGTERM to PID {}", pid);
+                    
+                    // If SIGTERM fails, try SIGKILL (force kill)
+                    println!("[WINE] Attempting force kill (SIGKILL) for PID {}", pid);
+                    let kill_result = tokio::process::Command::new("kill")
+                        .arg("-9")
+                        .arg(pid.to_string())
+                        .output()
+                        .await?;
+                    
+                    if !kill_result.status.success() {
+                        eprintln!("[WINE] Failed to kill process {}", pid);
+                    }
+                } else {
+                    println!("[WINE] Successfully sent termination signal to PID {}", pid);
+                }
+            }
+            
+            Ok(())
+        }
+        None => {
+            println!("[WINE] No Wine process found for prefix {:?}", wine_prefix);
+            Ok(())
+        }
+    }
+}
+
 async fn send_trade(
     connection: &Arc<Mutex<Option<tokio::net::TcpStream>>>,
     worker_name: &str,

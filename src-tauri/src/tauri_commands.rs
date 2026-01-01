@@ -189,15 +189,28 @@ pub async fn stop_instance(
     state: State<'_, AppState>,
     name: String,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
+    // First, stop the worker
     let tx = state.worker_command_tx.lock().await;
     if let Err(e) = tx.send(WorkerCommand::Stop(name.clone())).await {
         return Err(format!("Failed to send stop command: {}", e));
     }
 
+    // Then, stop the MT5 instance (kill the Wine process)
+    match InstanceManager::new(state.db.clone()) {
+        Ok(manager) => {
+            if let Err(e) = manager.stop_instance(&name).await {
+                eprintln!("[TAURI] Warning: Failed to stop MT5 instance: {}", e);
+            }
+        }
+        Err(e) => {
+            eprintln!("[TAURI] Warning: Failed to initialize instance manager: {}", e);
+        }
+    }
+
     Ok(ApiResponse {
         success: true,
         data: serde_json::json!({
-            "message": format!("Worker '{}' stop command sent successfully", name)
+            "message": format!("Worker '{}' and MT5 instance stopped successfully", name)
         }),
     })
 }

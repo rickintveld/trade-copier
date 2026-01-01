@@ -79,6 +79,20 @@ impl WindowsInstanceManager {
             bail!("Deletion cancelled - use force=true to confirm");
         }
 
+        // Stop the MT5 process if it's running
+        #[cfg(target_os = "windows")]
+        {
+            let output = Command::new("taskkill")
+                .args(&["/F", "/IM", "terminal64.exe"])
+                .output();
+            
+            if let Ok(result) = output {
+                if result.status.success() {
+                    println!("[INSTALLER] Stopped MT5 process for instance '{}'", name);
+                }
+            }
+        }
+
         // Delete instance directory if it exists
         if let Some(wine_prefix) = &worker.wine_prefix {
             let instance_path = PathBuf::from(wine_prefix);
@@ -129,6 +143,44 @@ impl WindowsInstanceManager {
         }
 
         println!("[INSTALLER] Instance '{}' started", name);
+
+        Ok(())
+    }
+
+    pub async fn stop_instance(&self, name: &str, db: Arc<Database>) -> Result<()> {
+        // Get worker from database
+        let worker = db.get_worker_by_name(name).await?
+            .context(format!("Instance '{}' not found", name))?;
+        
+        let wine_prefix = worker.wine_prefix
+            .context("Instance does not have a path configured")?;
+        let instance_path = PathBuf::from(wine_prefix);
+
+        let exe_path = instance_path.join("terminal64.exe");
+        let exe_name = "terminal64.exe";
+
+        #[cfg(target_os = "windows")]
+        {
+            // Use taskkill to terminate the process
+            let output = Command::new("taskkill")
+                .args(&["/F", "/IM", exe_name])
+                .output()
+                .context("Failed to execute taskkill")?;
+
+            if output.status.success() {
+                println!("[INSTALLER] Successfully stopped MT5 process for instance '{}'", name);
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("[INSTALLER] Warning: Failed to stop MT5 process: {}", stderr);
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            println!("[INSTALLER] [DRY RUN - not on Windows] Would kill process for: {:?}", exe_path);
+        }
+
+        println!("[INSTALLER] Instance '{}' stopped", name);
 
         Ok(())
     }

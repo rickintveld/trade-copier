@@ -121,6 +121,11 @@ impl InstanceManager {
         self.inner.start_instance(name, self.db.clone()).await
     }
 
+    /// Stop a specific MT5 instance
+    pub async fn stop_instance(&self, name: &str) -> Result<()> {
+        self.inner.stop_instance(name, self.db.clone()).await
+    }
+
     /// List all MT5 instances
     pub async fn list_instances(&self) -> Result<Vec<crate::database::WorkerRecord>> {
         self.inner.list_instances(self.db.clone()).await
