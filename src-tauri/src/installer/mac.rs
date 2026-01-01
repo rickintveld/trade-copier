@@ -48,6 +48,12 @@ impl MacInstanceManager {
             eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
             eprintln!("[INSTALLER] You can manually copy them later from ./src/mql5/Trading Rocket/");
         }
+        
+        // Copy Default.tpl template with worker port configuration
+        if let Err(e) = super::common::copy_default_template(&prefix_path, &address) {
+            eprintln!("[INSTALLER] Warning: Failed to copy Default.tpl template: {}", e);
+            eprintln!("[INSTALLER] You can manually copy it later from ./src/mql5/Profiles/Templates/");
+        }
 
         // Save worker to database with wine_prefix
         let prefix_str = prefix_path.to_string_lossy().to_string();
@@ -137,6 +143,11 @@ impl MacInstanceManager {
         // Copy Expert Advisors before starting
         if let Err(e) = super::common::copy_expert_advisors(&prefix_path) {
             eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
+        }
+        
+        // Copy Default.tpl template with worker port configuration before starting
+        if let Err(e) = super::common::copy_default_template(&prefix_path, &worker.address) {
+            eprintln!("[INSTALLER] Warning: Failed to copy Default.tpl template: {}", e);
         }
 
         let mt5_exe = self.mt5_executable(&prefix_path);

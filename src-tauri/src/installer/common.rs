@@ -146,3 +146,115 @@ pub fn copy_expert_advisors(wine_prefix: &Path) -> Result<()> {
     println!("[INSTALLER] Successfully copied {} Expert Advisor files", copied_count);
     Ok(())
 }
+
+/// Copy Default.tpl template from ./mql5/Profiles/Templates/ to the MT5 Profiles/Templates directory
+/// and update the WorkerPort parameter with the port from the worker address
+pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result<()> {
+    println!("[INSTALLER] Copying Default.tpl template to MT5 directory");
+    
+    // Try multiple possible locations for the source file
+    let mut source_file: Option<PathBuf> = None;
+    
+    // 1. Try relative to current working directory (development mode - new location)
+    let dev_path = PathBuf::from("./src/mql5/Profiles/Templates/Default.tpl");
+    if dev_path.exists() {
+        source_file = Some(dev_path);
+    } else {
+        // 2. Try old location for backwards compatibility
+        let old_dev_path = PathBuf::from("./mql5/Profiles/Templates/Default.tpl");
+        if old_dev_path.exists() {
+            source_file = Some(old_dev_path);
+        } else {
+            // 3. Try relative to executable directory (production mode)
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(exe_dir) = exe_path.parent() {
+                    // On macOS, the executable is in Contents/MacOS/, so we need to go up to Resources/
+                    let resource_path = exe_dir.parent()
+                        .and_then(|p| Some(p.join("Resources/mql5/Profiles/Templates/Default.tpl")));
+                    
+                    if let Some(ref path) = resource_path {
+                        if path.exists() {
+                            source_file = Some(path.clone());
+                        }
+                    }
+                    
+                    // 4. Also try directly next to executable (for non-bundled builds)
+                    if source_file.is_none() {
+                        let exe_relative = exe_dir.join("mql5/Profiles/Templates/Default.tpl");
+                        if exe_relative.exists() {
+                            source_file = Some(exe_relative);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    let source_file = source_file.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Source file not found: ./src/mql5/Profiles/Templates/Default.tpl\n".to_owned() +
+            "  Tried current directory, old location (./mql5/), and executable resource locations"
+        )
+    })?;
+    
+    println!("[INSTALLER] Using source file: {:?}", source_file);
+    
+    // Extract port from worker address (format: "IP:PORT")
+    let worker_port = worker_address
+        .split(':')
+        .nth(1)
+        .context("Invalid worker address format, expected 'IP:PORT'")?;
+    
+    println!("[INSTALLER] Setting WorkerPort to: {}", worker_port);
+    
+    // Read the template file content (UTF-16LE encoded)
+    let bytes = fs::read(&source_file)
+        .context("Failed to read Default.tpl template file")?;
+    
+    // Decode from UTF-16LE: convert pairs of bytes to u16 values
+    let u16_vec: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect();
+    
+    let template_content = String::from_utf16(&u16_vec)
+        .context("Failed to decode Default.tpl as UTF-16LE")?;
+    
+    // Replace WorkerPort value in the template
+    let updated_content = template_content
+        .lines()
+        .map(|line| {
+            if line.starts_with("WorkerPort=") {
+                format!("WorkerPort={}", worker_port)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n"); // Use Windows line endings
+    
+    // Destination directory in MT5 installation
+    let dest_dir = wine_prefix.join("drive_c/Program Files/MetaTrader 5/MQL5/Profiles/Templates");
+    
+    // Create destination directory if it doesn't exist
+    if !dest_dir.exists() {
+        fs::create_dir_all(&dest_dir)
+            .context(format!("Failed to create destination directory: {:?}", dest_dir))?;
+        println!("[INSTALLER] Created directory: {:?}", dest_dir);
+    }
+    
+    // Encode back to UTF-16LE for writing
+    let u16_content: Vec<u16> = updated_content.encode_utf16().collect();
+    let bytes_to_write: Vec<u8> = u16_content
+        .iter()
+        .flat_map(|&c| c.to_le_bytes())
+        .collect();
+    
+    // Write the updated template file to destination
+    let dest_file = dest_dir.join("Default.tpl");
+    fs::write(&dest_file, bytes_to_write)
+        .context(format!("Failed to write updated template to {:?}", dest_file))?;
+    
+    println!("[INSTALLER] Successfully copied and updated Default.tpl template with WorkerPort={}", worker_port);
+    Ok(())
+}

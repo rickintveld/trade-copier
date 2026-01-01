@@ -48,6 +48,18 @@ impl WindowsInstanceManager {
             println!("[INSTALLER] [DRY RUN - not on Windows] Would install MT5 to {:?}", instance_path);
         }
 
+        // Copy Expert Advisors after successful installation
+        if let Err(e) = super::common::copy_expert_advisors(&instance_path) {
+            eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
+            eprintln!("[INSTALLER] You can manually copy them later from ./src/mql5/Trading Rocket/");
+        }
+        
+        // Copy Default.tpl template with worker port configuration
+        if let Err(e) = super::common::copy_default_template(&instance_path, &address) {
+            eprintln!("[INSTALLER] Warning: Failed to copy Default.tpl template: {}", e);
+            eprintln!("[INSTALLER] You can manually copy it later from ./src/mql5/Profiles/Templates/");
+        }
+
         // Save worker to database with instance path (Windows doesn't use Wine)
         let path_str = instance_path.to_string_lossy().to_string();
         db.upsert_worker(
@@ -127,6 +139,16 @@ impl WindowsInstanceManager {
                 "MT5 executable not found at '{:?}'. Please install MT5 to this directory first.",
                 exe_path
             );
+        }
+
+        // Copy Expert Advisors before starting
+        if let Err(e) = super::common::copy_expert_advisors(&instance_path) {
+            eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
+        }
+        
+        // Copy Default.tpl template with worker port configuration before starting
+        if let Err(e) = super::common::copy_default_template(&instance_path, &worker.address) {
+            eprintln!("[INSTALLER] Warning: Failed to copy Default.tpl template: {}", e);
         }
 
         #[cfg(target_os = "windows")]
