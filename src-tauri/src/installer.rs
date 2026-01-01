@@ -24,6 +24,7 @@ pub struct InstanceManager {
 
 impl InstanceManager {
     pub fn new(db: Arc<Database>) -> Result<Self> {
+        #[cfg(target_os = "macos")]
         {
             Ok(Self {
                 inner: mac::MacInstanceManager::new()?,
