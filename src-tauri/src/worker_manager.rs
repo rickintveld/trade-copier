@@ -171,7 +171,38 @@ impl WorkerManager {
                 }
             }
         } else {
-            Err(anyhow::anyhow!("Worker '{}' not found", name))
+            // Worker not found in running workers map
+            // Check if it exists in database and update its state to Inactive
+            println!("[WORKER_MANAGER] Worker '{}' not running, checking database...", name);
+            
+            match self.db.get_worker_by_name(name).await {
+                Ok(Some(worker_record)) => {
+                    // Worker exists in database, update state to Inactive
+                    if let Err(e) = self.db.update_worker_state(
+                        &worker_record.address,
+                        crate::database::WorkerState::Inactive,
+                        None,
+                    ).await {
+                        eprintln!("[WORKER_MANAGER] Failed to update state for '{}': {}", name, e);
+                        return Err(anyhow::anyhow!("Failed to update worker state: {}", e));
+                    }
+                    
+                    // Set mt5_connected to false
+                    if let Err(e) = self.db.update_mt5_connected(&worker_record.address, false).await {
+                        eprintln!("[WORKER_MANAGER] Failed to update mt5_connected for '{}': {}", name, e);
+                    }
+                    
+                    println!("[WORKER_MANAGER] Worker '{}' state updated to Inactive", name);
+                    Ok(())
+                }
+                Ok(None) => {
+                    Err(anyhow::anyhow!("Worker '{}' not found", name))
+                }
+                Err(e) => {
+                    eprintln!("[WORKER_MANAGER] Database error checking worker '{}': {}", name, e);
+                    Err(anyhow::anyhow!("Database error: {}", e))
+                }
+            }
         }
     }
     

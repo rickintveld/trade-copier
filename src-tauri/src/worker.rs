@@ -224,6 +224,11 @@ pub async fn run_worker(
     ).await {
         eprintln!("[WORKER:{}] Failed to update database on shutdown: {}", slave.name, e);
     }
+    
+    // Set mt5_connected to false
+    if let Err(e) = db.update_mt5_connected(&slave.address, false).await {
+        eprintln!("[WORKER:{}] Failed to update mt5_connected on shutdown: {}", slave.name, e);
+    }
 
     Ok(())
 }
@@ -339,35 +344,6 @@ async fn is_wine_running(wine_prefix: &PathBuf) -> Result<bool> {
         .await?;
 
     Ok(output.status.success() && !output.stdout.is_empty())
-}
-
-/// Get the PID of the Wine process running for the given prefix
-async fn get_wine_pid(wine_prefix: &PathBuf) -> Result<Option<Vec<u32>>> {
-    // Construct the path to the MT5 executable
-    let mt5_path = wine_prefix.join("drive_c/Program Files/MetaTrader 5/terminal64.exe");
-    let mt5_path_str = mt5_path.display().to_string();
-    
-    // Use pgrep to get the PIDs
-    let output = tokio::process::Command::new("pgrep")
-        .arg("-f")
-        .arg(&mt5_path_str)
-        .output()
-        .await?;
-
-    if output.status.success() && !output.stdout.is_empty() {
-        let pids: Vec<u32> = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter_map(|line| line.trim().parse::<u32>().ok())
-            .collect();
-        
-        if pids.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(pids))
-        }
-    } else {
-        Ok(None)
-    }
 }
 
 /// Kill the Wine process for the given prefix
