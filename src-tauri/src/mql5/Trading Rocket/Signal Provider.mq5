@@ -55,8 +55,12 @@ int OnInit()
    Print("[SENDER] Trade Copier Master EA started");
    Print("[SENDER] Sending signals to ", RouterIP, ":", RouterPort);
    
+   // Try initial connection, but don't fail if router is unavailable
    if(!ConnectToRouter())
-      return INIT_FAILED;
+   {
+      Print("[SENDER] WARNING: Initial connection to router failed. Will retry automatically.");
+      g_connection_lost = true;
+   }
    
    return INIT_SUCCEEDED;
 }
