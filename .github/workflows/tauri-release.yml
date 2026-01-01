@@ -18,11 +18,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install dependencies (macOS only)
         if: matrix.platform == 'macos-latest'
         run: |
           brew update
           brew install pkg-config
+
+      - name: Install frontend dependencies
+        run: npm install
 
       - name: Build & publish Tauri app
         uses: tauri-apps/tauri-action@v0

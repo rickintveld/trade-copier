@@ -42,7 +42,7 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": ["src/mql5"],
+      "resources": [],
       "shortDescription": "",
       "targets": "all",
       "windows": {
