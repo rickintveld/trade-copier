@@ -54,6 +54,12 @@ impl WindowsInstanceManager {
             eprintln!("[INSTALLER] You can manually copy them later from ./src/mql5/Trading Rocket/");
         }
         
+        // Update common.ini configuration before copying template
+        if let Err(e) = super::common::update_common_ini(&instance_path) {
+            eprintln!("[INSTALLER] Warning: Failed to update common.ini: {}", e);
+            eprintln!("[INSTALLER] You may need to manually update it in Config/common.ini");
+        }
+        
         // Copy Default.tpl template with worker port configuration
         if let Err(e) = super::common::copy_default_template(&instance_path, &address) {
             eprintln!("[INSTALLER] Warning: Failed to copy Default.tpl template: {}", e);
@@ -144,6 +150,11 @@ impl WindowsInstanceManager {
         // Copy Expert Advisors before starting
         if let Err(e) = super::common::copy_expert_advisors(&instance_path) {
             eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
+        }
+        
+        // Update common.ini configuration before starting
+        if let Err(e) = super::common::update_common_ini(&instance_path) {
+            eprintln!("[INSTALLER] Warning: Failed to update common.ini: {}", e);
         }
         
         // Copy Default.tpl template with worker port configuration before starting

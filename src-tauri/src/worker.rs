@@ -372,46 +372,46 @@ async fn get_wine_pid(wine_prefix: &PathBuf) -> Result<Option<Vec<u32>>> {
 
 /// Kill the Wine process for the given prefix
 pub async fn kill_wine_process(wine_prefix: &PathBuf) -> Result<()> {
-    match get_wine_pid(wine_prefix).await? {
-        Some(pids) => {
-            println!("[WINE] Found {} Wine process(es) for prefix {:?}", pids.len(), wine_prefix);
-            
-            for pid in pids {
-                println!("[WINE] Killing process with PID: {}", pid);
-                
-                // Try SIGTERM first (graceful shutdown)
-                let result = tokio::process::Command::new("kill")
-                    .arg("-15")
-                    .arg(pid.to_string())
-                    .output()
-                    .await?;
-                
-                if !result.status.success() {
-                    eprintln!("[WINE] Failed to send SIGTERM to PID {}", pid);
-                    
-                    // If SIGTERM fails, try SIGKILL (force kill)
-                    println!("[WINE] Attempting force kill (SIGKILL) for PID {}", pid);
-                    let kill_result = tokio::process::Command::new("kill")
-                        .arg("-9")
-                        .arg(pid.to_string())
-                        .output()
-                        .await?;
-                    
-                    if !kill_result.status.success() {
-                        eprintln!("[WINE] Failed to kill process {}", pid);
-                    }
-                } else {
-                    println!("[WINE] Successfully sent termination signal to PID {}", pid);
-                }
-            }
-            
-            Ok(())
-        }
-        None => {
-            println!("[WINE] No Wine process found for prefix {:?}", wine_prefix);
-            Ok(())
+    println!("[WINE] Terminating Wine server for prefix {:?}", wine_prefix);
+    
+    // Use wineserver -k to kill all Wine processes for this prefix
+    let result = tokio::process::Command::new("wineserver")
+        .arg("-k")  // Kill all processes in this prefix
+        .env("WINEPREFIX", wine_prefix)
+        .output()
+        .await?;
+    
+    if result.status.success() {
+        println!("[WINE] Successfully terminated Wine server");
+    } else {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        eprintln!("[WINE] Warning: wineserver -k returned non-zero status: {}", stderr);
+    }
+    
+    // Give Wine processes a moment to shut down
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    
+    // Verify all processes are stopped
+    if is_wine_running(wine_prefix).await? {
+        eprintln!("[WINE] Warning: Some Wine processes still running after wineserver -k");
+        
+        // Fallback: try force kill with wineserver -k9
+        println!("[WINE] Attempting force kill with wineserver -k9");
+        let kill_result = tokio::process::Command::new("wineserver")
+            .arg("-k9")  // Force kill
+            .env("WINEPREFIX", wine_prefix)
+            .output()
+            .await?;
+        
+        if !kill_result.status.success() {
+            let stderr = String::from_utf8_lossy(&kill_result.stderr);
+            eprintln!("[WINE] Force kill failed: {}", stderr);
+        } else {
+            println!("[WINE] Force kill completed");
         }
     }
+    
+    Ok(())
 }
 
 async fn send_trade(
