@@ -21,9 +21,9 @@ impl MacInstanceManager {
         installer_path: &Path,
         db: Arc<Database>,
     ) -> Result<()> {
-        // Check Wine is installed
-        if let Err(e) = check_wine_installed() {
-            let error_msg = format!("Wine not installed: {}", e);
+        // Ensure Wine is installed (will install automatically if not present)
+        if let Err(e) = super::package_manager::ensure_wine_installed_auto() {
+            let error_msg = format!("Wine installation failed: {}", e);
             eprintln!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Critical, &error_msg).await;
             return Err(e);
@@ -145,8 +145,9 @@ impl MacInstanceManager {
     }
 
     pub async fn start_instance(&self, name: &str, db: Arc<Database>) -> Result<()> {
-        if let Err(e) = check_wine_installed() {
-            let error_msg = format!("Wine not installed: {}", e);
+        // Ensure Wine is installed (will install automatically if not present)
+        if let Err(e) = super::package_manager::ensure_wine_installed_auto() {
+            let error_msg = format!("Wine installation failed: {}", e);
             eprintln!("[INSTALLER] {}", error_msg);
             // Try to get worker address for error logging
             if let Ok(Some(worker)) = db.get_worker_by_name(name).await {
@@ -272,10 +273,6 @@ fn get_winecfg_path() -> Result<PathBuf> {
     }
 }
 
-fn check_wine_installed() -> Result<()> {
-    get_wine_path()?;
-    Ok(())
-}
 
 fn create_wine_prefix(prefix_path: &Path) -> Result<()> {
     if prefix_path.exists() {

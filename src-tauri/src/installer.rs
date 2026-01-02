@@ -1,4 +1,5 @@
 pub mod common;
+pub mod package_manager;
 
 #[cfg(target_os = "macos")]
 pub mod mac;
