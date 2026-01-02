@@ -2,6 +2,13 @@ import { Worker, ErrorLog, SystemMetrics, Position } from '@/types/trading';
 import { tradeCopierApi, ApiWorker, ApiErrorLog, ApiTrade } from '@/lib/api';
 import { useState, useEffect, useCallback } from 'react';
 
+// Helper to parse UTC timestamp from database
+const parseUTCTimestamp = (dateString: string): Date => {
+  // SQLite CURRENT_TIMESTAMP returns UTC, append 'Z' to ensure proper parsing
+  const utcDateString = dateString.endsWith('Z') ? dateString : `${dateString}Z`;
+  return new Date(utcDateString);
+};
+
 // Transform API worker to dashboard worker
 function transformWorker(apiWorker: ApiWorker): Worker {
   const [address, port] = apiWorker.address.split(':');
@@ -14,8 +21,8 @@ function transformWorker(apiWorker: ApiWorker): Worker {
     port: parseInt(port, 10) || 0,
     riskMultiplier: apiWorker.multiplier,
     mt5Connected: apiWorker.mt5_connected,
-    lastConnectionTime: new Date(apiWorker.created_at),
-    lastActivity: new Date(apiWorker.updated_at),
+    lastConnectionTime: parseUTCTimestamp(apiWorker.created_at),
+    lastActivity: parseUTCTimestamp(apiWorker.updated_at),
     latency: apiWorker.latency_us > 0 ? Math.round(apiWorker.latency_us / 1000) : 0,
   };
 }
@@ -24,7 +31,7 @@ function transformWorker(apiWorker: ApiWorker): Worker {
 function transformError(apiError: ApiErrorLog): ErrorLog {
   return {
     id: `ERR-${apiError.id}`,
-    timestamp: new Date(apiError.created_at),
+    timestamp: parseUTCTimestamp(apiError.created_at),
     severity: apiError.severity,
     type: 'connection', // Default type, could be enhanced based on error message
     workerId: `worker-${apiError.worker_id.toString().padStart(3, '0')}`,
@@ -48,7 +55,7 @@ function transformTradeToPosition(apiTrade: ApiTrade): Position | null {
     currentLots: apiTrade.lots,
     sl: apiTrade.sl,
     tp: apiTrade.tp,
-    openTime: new Date(apiTrade.created_at),
+    openTime: parseUTCTimestamp(apiTrade.created_at),
     slavePositionIds: [`SLAVE-${apiTrade.worker_id}-${apiTrade.trade_id}`],
   };
 }
