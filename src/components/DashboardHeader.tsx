@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Menu } from 'lucide-react';
+import { Menu, Rocket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface DashboardHeaderProps {
@@ -44,6 +44,17 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           </span>
         </div>
 
+        <Button
+          variant="default"
+          size="sm"
+          className="gap-2 bg-[#5865F2] hover:bg-[#4752C4] text-white"
+          asChild
+        >
+          <a href="https://discord.com/invite/HV8ta8asQN" target="_blank" rel="noopener noreferrer">
+            <span className="hidden md:inline">Join Discord</span>
+            <Rocket className="w-4 h-4" />
+          </a>
+        </Button>
       </div>
     </header>
   );
