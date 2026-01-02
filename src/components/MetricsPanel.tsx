@@ -69,6 +69,12 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ metrics, lastUpdate }) => {
       </div>
 
       <MetricCard
+        icon={<Layers className="w-5 h-5 text-muted-foreground" />}
+        label="Workers"
+        value={metrics.totalWorkers}
+      />
+
+      <MetricCard
         icon={<Network className="w-5 h-5 text-primary" />}
         label="Connections"
         value={metrics.activeConnections}
@@ -77,28 +83,22 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ metrics, lastUpdate }) => {
 
       <MetricCard
         icon={<TrendingUp className="w-5 h-5 text-success" />}
-        label="Total Trades"
+        label="Trades"
         value={metrics.totalTrades}
       />
 
       <MetricCard
-        icon={<Clock className="w-5 h-5 text-warning" />}
+        icon={<Gauge className="w-5 h-5 text-warning" />}
         label="Avg Latency"
         value={metrics.avgLatency}
         suffix="ms"
       />
 
       <MetricCard
-        icon={<Gauge className="w-5 h-5 text-primary" />}
-        label="Throughput"
-        value={metrics.throughput}
+        icon={<Clock className="w-5 h-5 text-primary" />}
+        label="Uptime"
+        value={metrics.uptime}
         suffix="/s"
-      />
-
-      <MetricCard
-        icon={<Layers className="w-5 h-5 text-muted-foreground" />}
-        label="Queue Depth"
-        value={metrics.channelQueueDepth}
       />
 
       <div className="glass-card p-4 flex items-center gap-4">

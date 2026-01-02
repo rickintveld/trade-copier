@@ -58,6 +58,8 @@ export interface ApiSystemMetrics {
   router_status: 'online' | 'offline';
   total_trades: number;
   avg_latency_ms: number;
+  uptime_seconds: number;
+  total_workers: number;
   created_at: string;
 }
 

@@ -72,8 +72,8 @@ export const useTradingData = (): UseTradingDataReturn => {
     activeConnections: 0,
     totalTrades: 0,
     avgLatency: 0,
-    throughput: 0,
-    channelQueueDepth: 0,
+    totalWorkers: 0,
+    uptime: 0,
   });
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
@@ -106,8 +106,8 @@ export const useTradingData = (): UseTradingDataReturn => {
           activeConnections: apiMetrics.active_workers,
           totalTrades: apiMetrics.total_trades,
           avgLatency: apiMetrics.avg_latency_ms,
-          throughput: 0, // Not available in current API
-          channelQueueDepth: 0, // Not available in current API
+          uptime: apiMetrics.uptime_seconds,
+          totalWorkers: apiMetrics.total_workers,
         });
       } catch (metricsError) {
         console.warn('Failed to fetch system metrics:', metricsError);
@@ -129,8 +129,8 @@ export const useTradingData = (): UseTradingDataReturn => {
         activeConnections: 0,
         totalTrades: 0,
         avgLatency: 0,
-        throughput: 0,
-        channelQueueDepth: 0,
+        uptime: 0,
+        totalWorkers: 0,
       });
     }
   }, []);

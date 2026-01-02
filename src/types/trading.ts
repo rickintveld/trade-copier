@@ -70,6 +70,6 @@ export interface SystemMetrics {
   activeConnections: number;
   totalTrades: number;
   avgLatency: number;
-  throughput: number;
-  channelQueueDepth: number;
+  totalWorkers: number;
+  uptime: number;
 }
