@@ -38,7 +38,12 @@ impl WindowsInstanceManager {
         {
             // Run MT5 installer on Windows
             if let Err(e) = self.install_mt5_windows(&instance_path, installer_path) {
-                eprintln!("[INSTALLER] MT5 installation failed: {}", e);
+                let error_msg = format!("MT5 installation failed: {}", e);
+                eprintln!("[INSTALLER] {}", error_msg);
+                eprintln!("[INSTALLER] The instance was created but MT5 installation incomplete.");
+                eprintln!("[INSTALLER] You can delete it with: DELETE /api/instances/{}", name);
+                // Log to worker_errors table
+                let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Critical, &error_msg).await;
                 return Err(e);
             }
         }
@@ -50,14 +55,16 @@ impl WindowsInstanceManager {
 
         // Copy Expert Advisors after successful installation
         if let Err(e) = super::common::copy_expert_advisors(&instance_path) {
-            eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
-            eprintln!("[INSTALLER] You can manually copy them later from ./src/mql5/Trading Rocket/");
+            let error_msg = format!("Failed to copy Expert Advisors: {}. You can manually copy them from ./src/mql5/Trading Rocket/", e);
+            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
         
         // Copy Default.tpl template with worker port configuration
         if let Err(e) = super::common::copy_default_template(&instance_path, &address) {
-            eprintln!("[INSTALLER] Warning: Failed to copy Default.tpl template: {}", e);
-            eprintln!("[INSTALLER] You can manually copy it later from ./src/mql5/Profiles/Templates/");
+            let error_msg = format!("Failed to copy Default.tpl template: {}. You can manually copy it from ./src/mql5/Profiles/Templates/", e);
+            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
 
         // Save worker to database with instance path (Windows doesn't use Wine)
@@ -143,20 +150,29 @@ impl WindowsInstanceManager {
 
         // Copy Expert Advisors before starting
         if let Err(e) = super::common::copy_expert_advisors(&instance_path) {
-            eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
+            let error_msg = format!("Failed to copy Expert Advisors: {}", e);
+            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
         
         // Copy Default.tpl template with worker port configuration before starting
         if let Err(e) = super::common::copy_default_template(&instance_path, &worker.address) {
-            eprintln!("[INSTALLER] Warning: Failed to copy Default.tpl template: {}", e);
+            let error_msg = format!("Failed to copy Default.tpl template: {}", e);
+            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
 
         #[cfg(target_os = "windows")]
         {
-            Command::new("cmd")
+            if let Err(e) = Command::new("cmd")
                 .args(&["/C", "start", "", exe_path.to_str().unwrap()])
                 .spawn()
-                .context(format!("Failed to launch instance '{}'", name))?;
+                .context(format!("Failed to launch instance '{}'", name)) {
+                let error_msg = format!("Failed to launch MT5: {}", e);
+                eprintln!("[INSTALLER] {}", error_msg);
+                let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Critical, &error_msg).await;
+                return Err(e);
+            }
         }
 
         #[cfg(not(target_os = "windows"))]

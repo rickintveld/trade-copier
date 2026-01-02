@@ -350,8 +350,17 @@ async fn is_wine_running(wine_prefix: &PathBuf) -> Result<bool> {
 pub async fn kill_wine_process(wine_prefix: &PathBuf) -> Result<()> {
     println!("[WINE] Terminating Wine server for prefix {:?}", wine_prefix);
     
+    // Get wineserver path
+    #[cfg(target_os = "macos")]
+    let wineserver = crate::installer::mac::get_wineserver_path()?
+        .to_string_lossy()
+        .to_string();
+    
+    #[cfg(not(target_os = "macos"))]
+    let wineserver = "wineserver".to_string();
+    
     // Use wineserver -k to kill all Wine processes for this prefix
-    let result = tokio::process::Command::new("wineserver")
+    let result = tokio::process::Command::new(&wineserver)
         .arg("-k")  // Kill all processes in this prefix
         .env("WINEPREFIX", wine_prefix)
         .output()
@@ -373,7 +382,7 @@ pub async fn kill_wine_process(wine_prefix: &PathBuf) -> Result<()> {
         
         // Fallback: try force kill with wineserver -k9
         println!("[WINE] Attempting force kill with wineserver -k9");
-        let kill_result = tokio::process::Command::new("wineserver")
+        let kill_result = tokio::process::Command::new(&wineserver)
             .arg("-k9")  // Force kill
             .env("WINEPREFIX", wine_prefix)
             .output()

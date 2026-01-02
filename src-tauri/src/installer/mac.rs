@@ -22,7 +22,12 @@ impl MacInstanceManager {
         db: Arc<Database>,
     ) -> Result<()> {
         // Check Wine is installed
-        check_wine_installed()?;
+        if let Err(e) = check_wine_installed() {
+            let error_msg = format!("Wine not installed: {}", e);
+            eprintln!("[INSTALLER] {}", error_msg);
+            let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Critical, &error_msg).await;
+            return Err(e);
+        }
 
         // Generate prefix path using worker count + 1 as ID
         let workers = db.get_worker_configs().await?;
@@ -32,27 +37,37 @@ impl MacInstanceManager {
         println!("[INSTALLER] Creating Wine prefix at {:?}", prefix_path);
 
         // Create Wine prefix
-        create_wine_prefix(&prefix_path)?;
+        if let Err(e) = create_wine_prefix(&prefix_path) {
+            let error_msg = format!("Failed to create Wine prefix: {}", e);
+            eprintln!("[INSTALLER] {}", error_msg);
+            let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Critical, &error_msg).await;
+            return Err(e);
+        }
 
         // Install MT5
         println!("[INSTALLER] Installing MT5 from {:?}", installer_path);
         if let Err(e) = install_mt5(&prefix_path, installer_path) {
-            eprintln!("[INSTALLER] MT5 installation failed: {}", e);
+            let error_msg = format!("MT5 installation failed: {}", e);
+            eprintln!("[INSTALLER] {}", error_msg);
             eprintln!("[INSTALLER] The instance was created but MT5 installation incomplete.");
             eprintln!("[INSTALLER] You can delete it with: DELETE /api/instances/{}", name);
+            // Log to worker_errors table
+            let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Critical, &error_msg).await;
             return Err(e);
         }
         
         // Copy Expert Advisors after successful installation
         if let Err(e) = super::common::copy_expert_advisors(&prefix_path) {
-            eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
-            eprintln!("[INSTALLER] You can manually copy them later from ./src/mql5/Trading Rocket/");
+            let error_msg = format!("Failed to copy Expert Advisors: {}. You can manually copy them from ./src/mql5/Trading Rocket/", e);
+            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
         
         // Copy Default.tpl template with worker port configuration
         if let Err(e) = super::common::copy_default_template(&prefix_path, &address) {
-            eprintln!("[INSTALLER] Warning: Failed to copy Default.tpl template: {}", e);
-            eprintln!("[INSTALLER] You can manually copy it later from ./src/mql5/Profiles/Templates/");
+            let error_msg = format!("Failed to copy Default.tpl template: {}. You can manually copy it from ./src/mql5/Profiles/Templates/", e);
+            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
 
         // Save worker to database with wine_prefix
@@ -130,28 +145,45 @@ impl MacInstanceManager {
     }
 
     pub async fn start_instance(&self, name: &str, db: Arc<Database>) -> Result<()> {
-        check_wine_installed()?;
+        if let Err(e) = check_wine_installed() {
+            let error_msg = format!("Wine not installed: {}", e);
+            eprintln!("[INSTALLER] {}", error_msg);
+            // Try to get worker address for error logging
+            if let Ok(Some(worker)) = db.get_worker_by_name(name).await {
+                let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Critical, &error_msg).await;
+            }
+            return Err(e);
+        }
 
         // Get worker from database
         let worker = db.get_worker_by_name(name).await?
             .context(format!("Instance '{}' not found", name))?;
         
-        let wine_prefix = worker.wine_prefix
+        let wine_prefix = worker.wine_prefix.clone()
             .context("Instance does not have a wine_prefix configured")?;
-        let prefix_path = PathBuf::from(wine_prefix);
+        let prefix_path = PathBuf::from(&wine_prefix);
         
         // Copy Expert Advisors before starting
         if let Err(e) = super::common::copy_expert_advisors(&prefix_path) {
-            eprintln!("[INSTALLER] Warning: Failed to copy Expert Advisors: {}", e);
+            let error_msg = format!("Failed to copy Expert Advisors: {}", e);
+            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
         
         // Copy Default.tpl template with worker port configuration before starting
         if let Err(e) = super::common::copy_default_template(&prefix_path, &worker.address) {
-            eprintln!("[INSTALLER] Warning: Failed to copy Default.tpl template: {}", e);
+            let error_msg = format!("Failed to copy Default.tpl template: {}", e);
+            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
 
         let mt5_exe = self.mt5_executable(&prefix_path);
-        launch_mt5(&prefix_path, &mt5_exe, None).await?;
+        if let Err(e) = launch_mt5(&prefix_path, &mt5_exe, None).await {
+            let error_msg = format!("Failed to launch MT5: {}", e);
+            eprintln!("[INSTALLER] {}", error_msg);
+            let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Critical, &error_msg).await;
+            return Err(e);
+        }
 
         println!("[INSTALLER] Instance '{}' started", name);
 
@@ -179,16 +211,69 @@ impl MacInstanceManager {
     }
 }
 
-fn check_wine_installed() -> Result<()> {
-    let output = Command::new("which")
-        .arg("wine")
-        .output()
-        .context("Failed to check for Wine installation")?;
-
-    if !output.status.success() {
-        bail!("Wine is not installed. Install it with: brew install --cask wine-stable");
+/// Get the path to Wine executable, checking common installation locations
+fn get_wine_path() -> Result<PathBuf> {
+    // Common Wine installation paths on macOS
+    let wine_paths = vec![
+        "/opt/homebrew/bin/wine",  // Homebrew on Apple Silicon
+        "/usr/local/bin/wine",      // Homebrew on Intel
+        "/opt/local/bin/wine",      // MacPorts
+    ];
+    
+    // First, try to find wine in PATH using which
+    if let Ok(output) = Command::new("which").arg("wine").output() {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() {
+                return Ok(PathBuf::from(path_str));
+            }
+        }
     }
+    
+    // If not in PATH, check common installation locations
+    for wine_path in &wine_paths {
+        let path = Path::new(wine_path);
+        if path.exists() {
+            println!("[INSTALLER] Found Wine at {}", wine_path);
+            return Ok(path.to_path_buf());
+        }
+    }
+    
+    bail!("Wine is not installed. Install it with: brew install --cask wine-stable")
+}
 
+/// Get the path to wineserver executable
+pub fn get_wineserver_path() -> Result<PathBuf> {
+    let wine_path = get_wine_path()?;
+    // wineserver is usually in the same directory as wine
+    let wine_dir = wine_path.parent()
+        .context("Could not determine Wine directory")?;
+    let wineserver = wine_dir.join("wineserver");
+    
+    if wineserver.exists() {
+        Ok(wineserver)
+    } else {
+        bail!("wineserver not found at {:?}", wineserver)
+    }
+}
+
+/// Get the path to winecfg executable
+fn get_winecfg_path() -> Result<PathBuf> {
+    let wine_path = get_wine_path()?;
+    // winecfg is usually in the same directory as wine
+    let wine_dir = wine_path.parent()
+        .context("Could not determine Wine directory")?;
+    let winecfg = wine_dir.join("winecfg");
+    
+    if winecfg.exists() {
+        Ok(winecfg)
+    } else {
+        bail!("winecfg not found at {:?}", winecfg)
+    }
+}
+
+fn check_wine_installed() -> Result<()> {
+    get_wine_path()?;
     Ok(())
 }
 
@@ -197,7 +282,8 @@ fn create_wine_prefix(prefix_path: &Path) -> Result<()> {
         bail!("Wine prefix already exists at {:?}", prefix_path);
     }
 
-    let status = Command::new("winecfg")
+    let winecfg = get_winecfg_path()?;
+    let status = Command::new(winecfg)
         .env("WINEPREFIX", prefix_path)
         .status()
         .context("Failed to create Wine prefix")?;
@@ -217,9 +303,12 @@ fn install_mt5(prefix_path: &Path, installer_path: &Path) -> Result<()> {
 
     println!("[INSTALLER] Installing MT5... This may take a few minutes.");
 
+    // Get Wine executable path
+    let wine = get_wine_path()?;
+    
     // Spawn the installer without waiting for it to exit
     // (Wine keeps running even after installation completes)
-    let mut child = Command::new("wine")
+    let mut child = Command::new(wine)
         .env("WINEPREFIX", prefix_path)
         .arg(installer_path)
         .spawn()
@@ -288,7 +377,10 @@ async fn launch_mt5(prefix_path: &Path, mt5_executable: &Path, _db: Option<Arc<D
         );
     }
 
-    Command::new("wine")
+    // Get Wine executable path
+    let wine = get_wine_path()?;
+    
+    Command::new(wine)
         .env("WINEPREFIX", prefix_path)
         .arg(mt5_executable)
         .spawn()
@@ -298,3 +390,4 @@ async fn launch_mt5(prefix_path: &Path, mt5_executable: &Path, _db: Option<Arc<D
 
     Ok(())
 }
+

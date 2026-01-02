@@ -98,8 +98,17 @@ impl InstanceManager {
                 
                 anyhow::Ok(())
             }.await {
+                let error_msg = format!("installation failed: {}", e);
                 eprintln!("[INSTALLER] Background install for '{}' failed: {}", name_bg, e);
-                let _ = db.update_worker_state(&address_bg, WorkerState::Error, Some(&format!("installation failed: {}", e))).await;
+                
+                // Update worker state
+                let _ = db.update_worker_state(&address_bg, WorkerState::Error, Some(&error_msg)).await;
+                
+                // Log to worker_errors table for visibility in UI
+                use crate::database::ErrorSeverity;
+                if let Err(log_err) = db.insert_worker_error(&address_bg, ErrorSeverity::Critical, &error_msg).await {
+                    eprintln!("[INSTALLER] Failed to log installation error to database: {}", log_err);
+                }
             }
         });
         

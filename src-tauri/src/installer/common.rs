@@ -75,16 +75,29 @@ pub fn copy_expert_advisors(wine_prefix: &Path) -> Result<()> {
             if let Ok(exe_path) = std::env::current_exe() {
                 if let Some(exe_dir) = exe_path.parent() {
                     // On macOS, the executable is in Contents/MacOS/, so we need to go up to Resources/
-                    let resource_path = exe_dir.parent()
-                        .and_then(|p| Some(p.join("Resources/mql5/Trading Rocket")));
+                    // Tauri bundles resources preserving the source path structure
+                    let resource_path_new = exe_dir.parent()
+                        .and_then(|p| Some(p.join("Resources/src/mql5/Trading Rocket")));
                     
-                    if let Some(ref path) = resource_path {
+                    if let Some(ref path) = resource_path_new {
                         if path.exists() {
                             source_dir = Some(path.clone());
                         }
                     }
                     
-                    // 4. Also try directly next to executable (for non-bundled builds)
+                    // Also try without src/ prefix (in case bundle config changes)
+                    if source_dir.is_none() {
+                        let resource_path_old = exe_dir.parent()
+                            .and_then(|p| Some(p.join("Resources/mql5/Trading Rocket")));
+                        
+                        if let Some(ref path) = resource_path_old {
+                            if path.exists() {
+                                source_dir = Some(path.clone());
+                            }
+                        }
+                    }
+                    
+                    // Also try directly next to executable (for non-bundled builds)
                     if source_dir.is_none() {
                         let exe_relative = exe_dir.join("mql5/Trading Rocket");
                         if exe_relative.exists() {
@@ -169,16 +182,29 @@ pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result
             if let Ok(exe_path) = std::env::current_exe() {
                 if let Some(exe_dir) = exe_path.parent() {
                     // On macOS, the executable is in Contents/MacOS/, so we need to go up to Resources/
-                    let resource_path = exe_dir.parent()
-                        .and_then(|p| Some(p.join("Resources/mql5/Profiles/Templates/Default.tpl")));
+                    // Tauri bundles resources preserving the source path structure
+                    let resource_path_new = exe_dir.parent()
+                        .and_then(|p| Some(p.join("Resources/src/mql5/Profiles/Templates/Default.tpl")));
                     
-                    if let Some(ref path) = resource_path {
+                    if let Some(ref path) = resource_path_new {
                         if path.exists() {
                             source_file = Some(path.clone());
                         }
                     }
                     
-                    // 4. Also try directly next to executable (for non-bundled builds)
+                    // Also try without src/ prefix (in case bundle config changes)
+                    if source_file.is_none() {
+                        let resource_path_old = exe_dir.parent()
+                            .and_then(|p| Some(p.join("Resources/mql5/Profiles/Templates/Default.tpl")));
+                        
+                        if let Some(ref path) = resource_path_old {
+                            if path.exists() {
+                                source_file = Some(path.clone());
+                            }
+                        }
+                    }
+                    
+                    // Also try directly next to executable (for non-bundled builds)
                     if source_file.is_none() {
                         let exe_relative = exe_dir.join("mql5/Profiles/Templates/Default.tpl");
                         if exe_relative.exists() {
