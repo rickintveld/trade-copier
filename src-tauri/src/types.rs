@@ -26,4 +26,5 @@ pub struct SlaveConfig {
     pub name: String,
     pub address: String,
     pub multiplier: f64,
+    pub symbol_prefix: String,
 }

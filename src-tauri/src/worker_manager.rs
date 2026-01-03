@@ -174,6 +174,7 @@ impl WorkerManager {
             name: worker_cfg.name.clone(),
             address: worker_cfg.address.clone(),
             multiplier: worker_cfg.multiplier,
+            symbol_prefix: worker_cfg.symbol_prefix.clone(),
         };
         
         // Parse wine prefix path if present

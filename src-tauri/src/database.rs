@@ -60,6 +60,7 @@ impl Database {
                     latency_us INTEGER,
                     wine_prefix TEXT,
                     mt5_connected BOOLEAN NOT NULL DEFAULT 0,
+                    symbol_prefix TEXT NOT NULL DEFAULT '',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )",
@@ -174,25 +175,28 @@ impl Database {
         state: WorkerState,
         error: Option<&str>,
         wine_prefix: Option<&str>,
+        symbol_prefix: Option<&str>,
     ) -> Result<()> {
         let state_str = state.as_str().to_string();
         let name = name.to_string();
         let address = address.to_string();
         let error = error.map(|s| s.to_string());
         let wine_prefix = wine_prefix.map(|s| s.to_string());
+        let symbol_prefix = symbol_prefix.unwrap_or("").to_string();
         
         self.conn.call(move |conn| {
             conn.execute(
-                "INSERT INTO workers (name, address, multiplier, state, last_error, wine_prefix, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)
+                "INSERT INTO workers (name, address, multiplier, state, last_error, wine_prefix, symbol_prefix, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, CURRENT_TIMESTAMP)
                  ON CONFLICT(address) DO UPDATE SET
                     name = excluded.name,
                     multiplier = excluded.multiplier,
                     state = excluded.state,
                     last_error = excluded.last_error,
                     wine_prefix = excluded.wine_prefix,
+                    symbol_prefix = excluded.symbol_prefix,
                     updated_at = CURRENT_TIMESTAMP",
-                rusqlite::params![&name, &address, multiplier, &state_str, &error, &wine_prefix],
+                rusqlite::params![&name, &address, multiplier, &state_str, &error, &wine_prefix, &symbol_prefix],
             )?;
             Ok(())
         }).await?;
@@ -385,7 +389,7 @@ impl Database {
     pub async fn get_all_workers(&self) -> Result<Vec<WorkerRecord>> {
         let result = self.conn.call(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, address, multiplier, state, last_error, latency_us, wine_prefix, mt5_connected, created_at, updated_at 
+                "SELECT id, name, address, multiplier, state, last_error, latency_us, wine_prefix, mt5_connected, symbol_prefix, created_at, updated_at 
                  FROM workers ORDER BY address, created_at DESC"
             )?;
             
@@ -400,8 +404,9 @@ impl Database {
                     latency_us: row.get(6)?,
                     wine_prefix: row.get(7)?,
                     mt5_connected: row.get(8)?,
-                    created_at: row.get(9)?,
-                    updated_at: row.get(10)?,
+                    symbol_prefix: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
                 })
             })?.collect::<Result<Vec<_>, _>>()?;
             
@@ -586,7 +591,7 @@ impl Database {
     pub async fn get_worker_configs(&self) -> Result<Vec<WorkerConfig>> {
         let result = self.conn.call(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT name, address, multiplier, wine_prefix FROM workers ORDER BY created_at ASC"
+                "SELECT name, address, multiplier, wine_prefix, COALESCE(symbol_prefix, '') as symbol_prefix FROM workers ORDER BY created_at ASC"
             )?;
             
             let configs = stmt.query_map([], |row| {
@@ -595,6 +600,7 @@ impl Database {
                     address: row.get(1)?,
                     multiplier: row.get(2)?,
                     wine_prefix: row.get(3)?,
+                    symbol_prefix: row.get(4)?,
                 })
             })?.collect::<Result<Vec<_>, _>>()?;
             
@@ -610,7 +616,7 @@ impl Database {
         
         let result = self.conn.call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, address, multiplier, state, last_error, latency_us, wine_prefix, mt5_connected, created_at, updated_at
+                "SELECT id, name, address, multiplier, state, last_error, latency_us, wine_prefix, mt5_connected, COALESCE(symbol_prefix, '') as symbol_prefix, created_at, updated_at
                  FROM workers WHERE name = ?1"
             )?;
             
@@ -626,8 +632,9 @@ impl Database {
                     latency_us: row.get(6)?,
                     wine_prefix: row.get(7)?,
                     mt5_connected: row.get(8)?,
-                    created_at: row.get(9)?,
-                    updated_at: row.get(10)?,
+                    symbol_prefix: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
                 }))
             } else {
                 Ok(None)
@@ -651,6 +658,7 @@ pub struct WorkerRecord {
     pub latency_us: Option<i64>,
     pub wine_prefix: Option<String>,
     pub mt5_connected: bool,
+    pub symbol_prefix: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -703,4 +711,5 @@ pub struct WorkerConfig {
     pub address: String,
     pub multiplier: f64,
     pub wine_prefix: Option<String>,
+    pub symbol_prefix: String,
 }

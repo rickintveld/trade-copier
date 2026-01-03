@@ -20,6 +20,7 @@ impl WindowsInstanceManager {
         name: String,
         address: String,
         multiplier: f64,
+        symbol_prefix: String,
         installer_path: &Path,
         db: Arc<Database>,
     ) -> Result<()> {
@@ -76,6 +77,7 @@ impl WindowsInstanceManager {
             WorkerState::Inactive,
             None,
             Some(&path_str),
+            Some(&symbol_prefix),
         ).await?;
 
         println!("[INSTALLER] Instance '{}' created successfully!", name);

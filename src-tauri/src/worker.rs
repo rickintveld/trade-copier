@@ -27,6 +27,7 @@ pub async fn run_worker(
         WorkerState::Active,
         None,
         wine_prefix_str.as_deref(),
+        Some(&slave.symbol_prefix),
     ).await {
         eprintln!("[WORKER:{}] Failed to update database on startup: {}", slave.name, e);
     }
@@ -129,6 +130,12 @@ pub async fn run_worker(
                 // Apply risk multiplier
                 trade.lots = trade.lots * slave.multiplier;
                 trade.lots = (trade.lots * 100.0).round() / 100.0; // Round to 2 decimals
+                
+                // Apply symbol prefix if configured
+                if !slave.symbol_prefix.is_empty() {
+                    trade.symbol = format!("{}{}", trade.symbol, slave.symbol_prefix);
+                    println!("[WORKER:{}] Applied symbol prefix: {}", slave.name, trade.symbol);
+                }
 
                 println!(
                     "[WORKER:{}] Adjusted lots: {} (multiplier: {})",

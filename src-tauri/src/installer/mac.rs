@@ -18,6 +18,7 @@ impl MacInstanceManager {
         name: String,
         address: String,
         multiplier: f64,
+        symbol_prefix: String,
         installer_path: &Path,
         db: Arc<Database>,
     ) -> Result<()> {
@@ -79,6 +80,7 @@ impl MacInstanceManager {
             WorkerState::Inactive,
             None,
             Some(&prefix_str),
+            Some(&symbol_prefix),
         ).await?;
 
         println!("[INSTALLER] Instance '{}' created successfully!", name);

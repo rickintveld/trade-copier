@@ -107,12 +107,14 @@ pub async fn create_instance(
     name: String,
     address: String,
     multiplier: f64,
+    symbol_prefix: Option<String>,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => {
             let worker_tx = state.worker_command_tx.lock().await.clone();
+            let prefix = symbol_prefix.unwrap_or_default();
             match manager
-                .create_instance(name, address, multiplier, Some(worker_tx))
+                .create_instance(name, address, multiplier, prefix, Some(worker_tx))
                 .await
             {
                 Ok(instance) => Ok(ApiResponse {

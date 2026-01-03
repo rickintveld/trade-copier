@@ -11,6 +11,7 @@ export interface Worker {
   port: number;
   riskMultiplier: number;
   mt5Connected: boolean;
+  symbolPrefix: string;
   lastConnectionTime: Date;
   lastActivity: Date;
   latency: number;

@@ -54,6 +54,7 @@ impl InstanceManager {
         name: String,
         address: String,
         multiplier: f64,
+        symbol_prefix: String,
         reload_tx: Option<mpsc::Sender<crate::worker_manager::WorkerCommand>>,
     ) -> Result<crate::database::WorkerRecord> {
         use crate::database::{WorkerState};
@@ -74,13 +75,14 @@ impl InstanceManager {
         
         let name_bg = name.clone();
         let address_bg = address.clone();
+        let symbol_prefix_bg = symbol_prefix.clone();
         tokio::spawn(async move {
             if let Err(e) = async {
                 let inner = inner?; // Unpack Result from new()
                 // Download installer
                 let installer_path = common::download_mt5_installer().await?;
                 // Run platform-specific creation (may install MT5)
-                let _instance = inner.create_instance(name_bg.clone(), address_bg.clone(), multiplier, &installer_path, db.clone()).await?;
+                let _instance = inner.create_instance(name_bg.clone(), address_bg.clone(), multiplier, symbol_prefix_bg.clone(), &installer_path, db.clone()).await?;
                 // Clean up
                 if let Err(e) = std::fs::remove_file(&installer_path) {
                     eprintln!("[INSTALLER] Warning: Failed to remove installer: {}", e);

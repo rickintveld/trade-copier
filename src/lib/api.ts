@@ -21,6 +21,7 @@ export interface ApiWorker {
   state: 'active' | 'error' | 'inactive' | 'installing';
   last_error: string | null;
   latency_us: number | null;
+  symbol_prefix: string;
   created_at: string;
   updated_at: string;
 }
@@ -106,11 +107,12 @@ export const tradeCopierApi = {
     await tauriInvoke('stop_instance', { name: workerName });
   },
 
-  async createWorker(data: { name: string; address: string; multiplier: number }): Promise<ApiWorker> {
+  async createWorker(data: { name: string; address: string; multiplier: number; symbol_prefix?: string }): Promise<ApiWorker> {
     const response = await tauriInvoke<ApiWorker>('create_instance', {
       name: data.name,
       address: data.address,
       multiplier: data.multiplier,
+      symbol_prefix: data.symbol_prefix || '',
     });
     return response.data;
   },

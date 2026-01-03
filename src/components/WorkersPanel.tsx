@@ -13,6 +13,13 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { tradeCopierApi } from '@/lib/api';
 
 interface WorkersPanelProps {
@@ -31,8 +38,9 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    address: '0.0.0.0:5050',
-    multiplier: '1.0'
+    port: '5050',
+    multiplier: '1.0',
+    symbol_prefix: 'none'
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [addressError, setAddressError] = useState('');
@@ -41,16 +49,16 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
   const activeCount = workers.filter(w => w.status === 'active').length;
   const errorCount = workers.filter(w => w.status === 'error').length;
 
-  const validateAddress = (address: string): boolean => {
-    const pattern = /^0\.0\.0\.0:\d+$/;
-    return pattern.test(address);
+  const validatePort = (port: string): boolean => {
+    const portNum = parseInt(port, 10);
+    return /^\d+$/.test(port) && portNum > 0 && portNum <= 65535;
   };
 
-  const handleAddressChange = (address: string) => {
-    setFormData({ ...formData, address });
+  const handlePortChange = (port: string) => {
+    setFormData({ ...formData, port });
     
-    if (address && !validateAddress(address)) {
-      setAddressError('Address must be in format 0.0.0.0:port (e.g. 0.0.0.0:5050)');
+    if (port && !validatePort(port)) {
+      setAddressError('Port must be a number between 1 and 65535');
     } else {
       setAddressError('');
     }
@@ -67,8 +75,8 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!validateAddress(formData.address)) {
-      setAddressError('Address must be in format 0.0.0.0:port (e.g. 0.0.0.0:5050)');
+    if (!validatePort(formData.port)) {
+      setAddressError('Port must be a number between 1 and 65535');
       return;
     }
     
@@ -78,12 +86,13 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
     try {
       await tradeCopierApi.createWorker({
         name: formData.name,
-        address: formData.address,
-        multiplier: parseFloat(formData.multiplier)
+        address: `0.0.0.0:${formData.port}`,
+        multiplier: parseFloat(formData.multiplier),
+        symbol_prefix: formData.symbol_prefix === 'none' ? '' : formData.symbol_prefix
       });
       
       setIsDialogOpen(false);
-      setFormData({ name: '', address: '', multiplier: '1.0' });
+      setFormData({ name: '', port: '5050', multiplier: '1.0', symbol_prefix: 'none' });
       setAddressError('');
       
       if (onWorkerCreated) {
@@ -175,16 +184,22 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
                     </div>
                     <div className="grid gap-2">
                       <label htmlFor="address" className="text-sm font-medium">
-                        Address
+                        Port
                       </label>
-                      <Input
-                        id="address"
-                        placeholder="e.g. 0.0.0.0:5050"
-                        value={formData.address}
-                        onChange={(e) => handleAddressChange(e.target.value)}
-                        className={addressError ? 'border-red-500' : ''}
-                        required
-                      />
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                          0.0.0.0:
+                        </span>
+                        <Input
+                          id="address"
+                          type="number"
+                          placeholder="5050"
+                          value={formData.port}
+                          onChange={(e) => handlePortChange(e.target.value)}
+                          className={`pl-20 ${addressError ? 'border-red-500' : ''}`}
+                          required
+                        />
+                      </div>
                       {addressError && (
                         <p className="text-sm text-red-500">{addressError}</p>
                       )}
@@ -202,6 +217,31 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
                         onChange={(e) => setFormData({ ...formData, multiplier: e.target.value })}
                         required
                       />
+                    </div>
+                    <div className="grid gap-2">
+                      <label htmlFor="symbol_prefix" className="text-sm font-medium">
+                        Symbol Prefix
+                      </label>
+                      <Select
+                        value={formData.symbol_prefix}
+                        onValueChange={(value) => setFormData({ ...formData, symbol_prefix: value })}
+                      >
+                        <SelectTrigger id="symbol_prefix">
+                          <SelectValue placeholder="None (default)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None (default)</SelectItem>
+                          <SelectItem value=".ECN">.ECN</SelectItem>
+                          <SelectItem value=".RAW">.RAW</SelectItem>
+                          <SelectItem value=".PRO">.PRO</SelectItem>
+                          <SelectItem value=".ZERO">.ZERO</SelectItem>
+                          <SelectItem value=".PRIME">.PRIME</SelectItem>
+                          <SelectItem value=".INSTITUTIONAL">.INSTITUTIONAL</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Optional prefix to append to symbol names (e.g., EURUSD → EURUSD.ECN)
+                      </p>
                     </div>
                   </div>
                   {submitError && (
