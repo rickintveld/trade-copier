@@ -83,7 +83,7 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ metrics, lastUpdate }) => {
 
       <MetricCard
         icon={<TrendingUp className="w-5 h-5 text-success" />}
-        label="Trades"
+        label="Signals"
         value={metrics.totalTrades}
       />
 
