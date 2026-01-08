@@ -14,7 +14,9 @@ pub struct Trade {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tp: Option<f64>,
     #[serde(default = "default_cmd")]
-    pub cmd: String, // "open", "close", "modify"
+    pub cmd: String, // "open", "close", "modify", "cancel"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_type: Option<String>, // "market", "buy_limit", "sell_limit", "buy_stop", "sell_stop"
 }
 
 fn default_cmd() -> String {

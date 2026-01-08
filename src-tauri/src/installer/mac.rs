@@ -146,7 +146,7 @@ impl MacInstanceManager {
         Ok(())
     }
 
-    pub async fn start_instance(&self, name: &str, db: Arc<Database>) -> Result<()> {
+    pub async fn start_instance(&self, name: &str, force: bool, db: Arc<Database>) -> Result<()> {
         // Ensure Wine is installed (will install automatically if not present)
         if let Err(e) = super::package_manager::ensure_wine_installed_auto() {
             let error_msg = format!("Wine installation failed: {}", e);
@@ -165,6 +165,23 @@ impl MacInstanceManager {
         let wine_prefix = worker.wine_prefix.clone()
             .context("Instance does not have a wine_prefix configured")?;
         let prefix_path = PathBuf::from(&wine_prefix);
+        
+        // If force is true, kill any existing Wine process for this prefix
+        // Note: We don't kill processes using the port because the worker's TCP server
+        // is part of the trade-copier application itself
+        if force {
+            println!("[INSTALLER] Force start requested, killing existing Wine process...");
+            
+            // Kill any existing Wine process for this prefix
+            if let Err(e) = crate::worker::kill_wine_process(&prefix_path).await {
+                eprintln!("[INSTALLER] Warning: Failed to kill Wine process: {}", e);
+            } else {
+                println!("[INSTALLER] Killed existing Wine process for this instance");
+            }
+            
+            // Give Wine process time to fully terminate
+            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        }
         
         // Copy Expert Advisors before starting
         if let Err(e) = super::common::copy_expert_advisors(&prefix_path) {

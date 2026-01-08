@@ -45,7 +45,7 @@ export interface Position {
   workerName: string;
   symbol: string;
   type: TradeType;
-  cmd: 'open' | 'modify' | 'close';
+  cmd: 'open' | 'modify' | 'close' | 'cancel';
   entryPrice: number;
   currentLots: number;
   sl: number;

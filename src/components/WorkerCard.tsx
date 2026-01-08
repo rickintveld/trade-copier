@@ -11,9 +11,9 @@ interface WorkerCardProps {
 const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const handleStart = async () => {
+  const handleStart = async (force: boolean = false) => {
     try {
-      await tradeCopierApi.startWorker(worker.name);
+      await tradeCopierApi.startWorker(worker.name, force);
     } catch (error) {
       console.error('Failed to start worker:', error);
     }
@@ -132,30 +132,41 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
       </div>
 
       <div className="mt-3 pt-3 border-t border-border/50">
-        <div className="flex gap-2">
-          {worker.status === 'active' ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            {worker.status === 'active' ? (
+              <button
+                onClick={handleStop}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-status-error rounded hover:bg-status-error/90 transition-colors"
+              >
+                Stop Worker
+              </button>
+            ) : (
+              <button
+                onClick={() => handleStart(false)}
+                disabled={worker.status === 'installing'}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary rounded hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
+              >
+                {worker.status === 'installing' ? 'Installing...' : 'Start Worker'}
+              </button>
+            )}
             <button
-              onClick={handleStop}
-              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-status-error rounded hover:bg-status-error/90 transition-colors"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="px-4 py-2 text-sm font-medium text-white bg-status-error/80 rounded hover:bg-status-error transition-colors"
+              title="Delete Worker"
             >
-              Stop Worker
+              <Trash2 className="w-4 h-4" />
             </button>
-          ) : (
+          </div>
+          {(worker.status === 'error' || worker.status === 'inactive') && (
             <button
-              onClick={handleStart}
-              disabled={worker.status === 'installing'}
-              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary rounded hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
+              onClick={() => handleStart(true)}
+              className="w-full px-4 py-2 text-sm font-medium text-white bg-status-warning rounded hover:bg-status-warning/90 transition-colors"
+              title="Force restart - kills any process using the worker's port and restarts"
             >
-              {worker.status === 'installing' ? 'Installing...' : 'Start Worker'}
+              Force Restart
             </button>
           )}
-          <button
-            onClick={() => setShowDeleteConfirm(true)}
-            className="px-4 py-2 text-sm font-medium text-white bg-status-error/80 rounded hover:bg-status-error transition-colors"
-            title="Delete Worker"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
         </div>
       </div>
 

@@ -130,8 +130,8 @@ impl InstanceManager {
     }
 
     /// Start a specific MT5 instance
-    pub async fn start_instance(&self, name: &str) -> Result<()> {
-        self.inner.start_instance(name, self.db.clone()).await
+    pub async fn start_instance(&self, name: &str, force: bool) -> Result<()> {
+        self.inner.start_instance(name, force, self.db.clone()).await
     }
 
     /// Stop a specific MT5 instance

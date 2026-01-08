@@ -33,7 +33,7 @@ export interface ApiTrade {
   worker_name: string;
   worker_address: string;
   symbol: string;
-  trade_type: 'buy' | 'sell';
+  trade_type: 'buy' | 'sell',
   lots: number;
   price: number;
   sl: number;
@@ -99,8 +99,8 @@ export const tradeCopierApi = {
     return response.data;
   },
 
-  async startWorker(workerName: string): Promise<void> {
-    await tauriInvoke('start_instance', { name: workerName });
+  async startWorker(workerName: string, force?: boolean): Promise<void> {
+    await tauriInvoke('start_instance', { name: workerName, force });
   },
 
   async stopWorker(workerName: string): Promise<void> {

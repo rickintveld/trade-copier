@@ -3,9 +3,10 @@ use tokio::net::TcpListener;
 use tokio::sync::{broadcast, watch};
 use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use tokio::sync::Mutex;
 use std::path::PathBuf;
+use socket2::{Socket, TcpKeepalive};
 use crate::database::{Database, WorkerState, ErrorSeverity};
 use crate::types::{Trade, SlaveConfig};
 
@@ -75,6 +76,23 @@ pub async fn run_worker(
             monitor_wine_process(prefix, name_monitor, db_monitor, address_monitor, shutdown_tx_clone).await;
         });
     }
+    
+    // Spawn connection health monitoring task (heartbeat)
+    let connection_monitor = connection.clone();
+    let name_heartbeat = slave.name.clone();
+    let address_heartbeat = slave.address.clone();
+    let db_heartbeat = db.clone();
+    let shutdown_heartbeat = shutdown_rx.clone();
+    
+    tokio::spawn(async move {
+        monitor_connection_health(
+            connection_monitor,
+            name_heartbeat,
+            address_heartbeat,
+            db_heartbeat,
+            shutdown_heartbeat,
+        ).await;
+    });
 
     // Spawn task to accept connections
     tokio::spawn(async move {
@@ -82,6 +100,14 @@ pub async fn run_worker(
             match listener.accept().await {
                 Ok((stream, addr)) => {
                     println!("[WORKER:{}] MT5 receiver connected from {}", name_clone, addr);
+                    
+                    // Configure TCP keep-alive and socket options
+                    if let Err(e) = configure_tcp_socket(&stream) {
+                        eprintln!("[WORKER:{}] Failed to configure socket options: {}", name_clone, e);
+                    } else {
+                        println!("[WORKER:{}] TCP keep-alive configured", name_clone);
+                    }
+                    
                     *connection_clone.lock().await = Some(stream);
                     
                     // Update mt5_connected to true
@@ -404,6 +430,93 @@ pub async fn kill_wine_process(wine_prefix: &PathBuf) -> Result<()> {
     }
     
     Ok(())
+}
+
+/// Configure TCP socket with keep-alive and other options
+fn configure_tcp_socket(stream: &tokio::net::TcpStream) -> Result<()> {
+    use std::os::unix::io::{AsRawFd, FromRawFd};
+    
+    let fd = stream.as_raw_fd();
+    let socket = unsafe { Socket::from_raw_fd(fd) };
+    
+    // Enable TCP keep-alive with aggressive settings
+    let keepalive = TcpKeepalive::new()
+        .with_time(Duration::from_secs(30))      // Start probes after 30s idle
+        .with_interval(Duration::from_secs(10)); // Probe every 10s
+    
+    socket.set_tcp_keepalive(&keepalive)?;
+    
+    // Enable TCP_NODELAY to disable Nagle's algorithm for low latency
+    socket.set_nodelay(true)?;
+    
+    // Set read/write timeouts
+    socket.set_read_timeout(Some(Duration::from_secs(30)))?;
+    socket.set_write_timeout(Some(Duration::from_secs(10)))?;
+    
+    // Don't close the socket - just configured it
+    std::mem::forget(socket);
+    
+    Ok(())
+}
+
+/// Monitor connection health with periodic heartbeat
+async fn monitor_connection_health(
+    connection: Arc<Mutex<Option<tokio::net::TcpStream>>>,
+    worker_name: String,
+    address: String,
+    db: Arc<Database>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) {
+    let heartbeat_interval = Duration::from_secs(30);
+    let mut interval = tokio::time::interval(heartbeat_interval);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    
+    println!("[WORKER:{}] Connection health monitor started (heartbeat every 30s)", worker_name);
+    
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                let mut conn_guard = connection.lock().await;
+                
+                if let Some(stream) = conn_guard.as_mut() {
+                    // Send heartbeat ping (simple newline)
+                    let ping = b"PING\n";
+                    
+                    match stream.write_all(ping).await {
+                        Ok(_) => {
+                            // Connection is alive
+                            // println!("[WORKER:{}] Heartbeat sent successfully", worker_name);
+                        }
+                        Err(e) => {
+                            eprintln!("[WORKER:{}] Heartbeat failed, connection lost: {}", worker_name, e);
+                            *conn_guard = None;
+                            
+                            // Update mt5_connected to false
+                            if let Err(db_err) = db.update_mt5_connected(&address, false).await {
+                                eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
+                            }
+                            
+                            // Log error
+                            let error_msg = format!("Heartbeat failed, connection lost: {}", e);
+                            if let Err(db_err) = db.insert_worker_error(
+                                &address,
+                                ErrorSeverity::Warning,
+                                &error_msg,
+                            ).await {
+                                eprintln!("[WORKER:{}] Failed to log error: {}", worker_name, db_err);
+                            }
+                        }
+                    }
+                }
+            }
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    println!("[WORKER:{}] Connection health monitor shutting down", worker_name);
+                    break;
+                }
+            }
+        }
+    }
 }
 
 async fn send_trade(

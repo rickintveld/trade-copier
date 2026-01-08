@@ -24,6 +24,7 @@ function transformWorker(apiWorker: ApiWorker): Worker {
     lastConnectionTime: parseUTCTimestamp(apiWorker.created_at),
     lastActivity: parseUTCTimestamp(apiWorker.updated_at),
     latency: apiWorker.latency_us > 0 ? Math.round(apiWorker.latency_us / 1000) : 0,
+    symbolPrefix: apiWorker.symbol_prefix
   };
 }
 

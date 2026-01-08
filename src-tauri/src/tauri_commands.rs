@@ -162,9 +162,12 @@ pub async fn delete_instance(
 pub async fn start_instance(
     state: State<'_, AppState>,
     name: String,
+    force: Option<bool>,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
+    let force = force.unwrap_or(false);
+    
     match InstanceManager::new(state.db.clone()) {
-        Ok(manager) => match manager.start_instance(&name).await {
+        Ok(manager) => match manager.start_instance(&name, force).await {
             Ok(()) => {
                 // Now send start command to worker manager
                 let tx = state.worker_command_tx.lock().await;

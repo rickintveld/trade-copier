@@ -21,6 +21,10 @@ ulong g_position_tickets[];
 ulong g_trade_ids[];
 int g_tracking_count = 0;
 
+ulong g_order_tickets[];
+ulong g_order_trade_ids[];
+int g_order_tracking_count = 0;
+
 // Position state tracking for modify detection
 struct PositionState {
    double sl;
@@ -33,6 +37,12 @@ int FindPositionIndex(ulong ticket);
 void AddPositionTracking(ulong ticket, ulong trade_id, double sl, double tp);
 void RemovePositionTracking(ulong ticket);
 void CheckPositionModifications();
+
+// Helper functions for pending order tracking
+int FindOrderIndex(ulong ticket);
+void AddOrderTracking(ulong ticket, ulong trade_id);
+void RemoveOrderTracking(ulong ticket);
+string GetOrderTypeString(ENUM_ORDER_TYPE order_type);
 
 // Connection management
 bool ConnectToRouter();
@@ -49,6 +59,11 @@ int OnInit()
    ArrayResize(g_trade_ids, 0);
    ArrayResize(g_position_states, 0);
    g_tracking_count = 0;
+   
+   ArrayResize(g_order_tickets, 0);
+   ArrayResize(g_order_trade_ids, 0);
+   g_order_tracking_count = 0;
+   
    g_connection_lost = false;
    g_last_send_time = 0;
    
@@ -104,8 +119,80 @@ void OnTradeTransaction(
    const MqlTradeResult& result
 )
 {
+   // Process pending order placement
+   if(trans.type == TRADE_TRANSACTION_ORDER_ADD)
+   {
+      ulong order_ticket = trans.order;
+      if(order_ticket > 0 && OrderSelect(order_ticket))
+      {
+         ENUM_ORDER_TYPE order_type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+         
+         // Only process pending orders (not market orders)
+         if(order_type == ORDER_TYPE_BUY_LIMIT || order_type == ORDER_TYPE_SELL_LIMIT ||
+            order_type == ORDER_TYPE_BUY_STOP || order_type == ORDER_TYPE_SELL_STOP)
+         {
+            string symbol = OrderGetString(ORDER_SYMBOL);
+            double lots = OrderGetDouble(ORDER_VOLUME_CURRENT);
+            double price = OrderGetDouble(ORDER_PRICE_OPEN);
+            double sl = OrderGetDouble(ORDER_SL);
+            double tp = OrderGetDouble(ORDER_TP);
+            
+            // Generate unique trade ID and track order
+            ulong trade_id = (ulong)TimeLocal() * 1000000 + order_ticket;
+            AddOrderTracking(order_ticket, trade_id);
+            
+            // Determine trade type (buy or sell)
+            string trade_type = (order_type == ORDER_TYPE_BUY_LIMIT || order_type == ORDER_TYPE_BUY_STOP) ? "buy" : "sell";
+            
+            // Build and send pending order signal
+            string json = "{\"id\":" + IntegerToString(trade_id) + 
+                         ",\"symbol\":\"" + symbol + 
+                         "\",\"type\":\"" + trade_type + 
+                         "\",\"lots\":" + DoubleToString(lots, 2) + 
+                         ",\"price\":" + DoubleToString(price, 5) + 
+                         ",\"order_type\":\"" + GetOrderTypeString(order_type) + "\"";
+            
+            if(sl > 0) json += ",\"sl\":" + DoubleToString(sl, 5);
+            if(tp > 0) json += ",\"tp\":" + DoubleToString(tp, 5);
+            json += ",\"cmd\":\"open\"}";
+            
+            SendTradeSignal(json);
+         }
+      }
+   }
+   // Process pending order deletion (cancelled or expired)
+   else if(trans.type == TRADE_TRANSACTION_ORDER_DELETE)
+   {
+      ulong order_ticket = trans.order;
+      int idx = FindOrderIndex(order_ticket);
+      
+      if(idx >= 0)
+      {
+         // Check if order was filled (it will be in history with STATE_FILLED)
+         // If filled, position tracking will handle it, so we just remove order tracking
+         bool was_filled = false;
+         if(HistoryOrderSelect(order_ticket))
+         {
+            ENUM_ORDER_STATE state = (ENUM_ORDER_STATE)HistoryOrderGetInteger(order_ticket, ORDER_STATE);
+            was_filled = (state == ORDER_STATE_FILLED || state == ORDER_STATE_PARTIAL);
+         }
+         
+         // Only send cancel signal if order was not filled (manually cancelled or expired)
+         if(!was_filled)
+         {
+            string json = "{\"id\":" + IntegerToString(g_order_trade_ids[idx]) + 
+                         ",\"symbol\":\"\"" + // Symbol not needed for cancel
+                         ",\"lots\":0" +
+                         ",\"cmd\":\"cancel\"}";
+            
+            SendTradeSignal(json);
+         }
+         
+         RemoveOrderTracking(order_ticket);
+      }
+   }
    // Process deal additions (position opened/closed)
-   if(trans.type == TRADE_TRANSACTION_DEAL_ADD)
+   else if(trans.type == TRADE_TRANSACTION_DEAL_ADD)
    {
       ulong deal_ticket = trans.deal;
       if(deal_ticket > 0)
@@ -139,7 +226,8 @@ void OnTradeTransaction(
                             ",\"symbol\":\"" + symbol + 
                             "\",\"type\":\"" + ((deal_type == DEAL_TYPE_BUY) ? "buy" : "sell") + 
                             "\",\"lots\":" + DoubleToString(lots, 2) + 
-                            ",\"price\":" + DoubleToString(price, 5);
+                            ",\"price\":" + DoubleToString(price, 5) + 
+                            ",\"order_type\":\"market\"";
                
                if(sl > 0) json += ",\"sl\":" + DoubleToString(sl, 5);
                if(tp > 0) json += ",\"tp\":" + DoubleToString(tp, 5);
@@ -350,4 +438,59 @@ bool EnsureConnection()
    }
    
    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Pending order tracking helper functions                         |
+//+------------------------------------------------------------------+
+int FindOrderIndex(ulong ticket)
+{
+   for(int i = 0; i < g_order_tracking_count; i++)
+   {
+      if(g_order_tickets[i] == ticket)
+         return i;
+   }
+   return -1;
+}
+
+void AddOrderTracking(ulong ticket, ulong trade_id)
+{
+   g_order_tracking_count++;
+   ArrayResize(g_order_tickets, g_order_tracking_count);
+   ArrayResize(g_order_trade_ids, g_order_tracking_count);
+   
+   g_order_tickets[g_order_tracking_count - 1] = ticket;
+   g_order_trade_ids[g_order_tracking_count - 1] = trade_id;
+   
+   Print("[SENDER] Tracking pending order: ticket=", ticket, " trade_id=", trade_id);
+}
+
+void RemoveOrderTracking(ulong ticket)
+{
+   int idx = FindOrderIndex(ticket);
+   if(idx < 0) return;
+   
+   g_order_tracking_count--;
+   
+   // Shift arrays to remove element
+   for(int i = idx; i < g_order_tracking_count; i++)
+   {
+      g_order_tickets[i] = g_order_tickets[i + 1];
+      g_order_trade_ids[i] = g_order_trade_ids[i + 1];
+   }
+   
+   ArrayResize(g_order_tickets, g_order_tracking_count);
+   ArrayResize(g_order_trade_ids, g_order_tracking_count);
+}
+
+string GetOrderTypeString(ENUM_ORDER_TYPE order_type)
+{
+   switch(order_type)
+   {
+      case ORDER_TYPE_BUY_LIMIT:  return "buy_limit";
+      case ORDER_TYPE_SELL_LIMIT: return "sell_limit";
+      case ORDER_TYPE_BUY_STOP:   return "buy_stop";
+      case ORDER_TYPE_SELL_STOP:  return "sell_stop";
+      default: return "market";
+   }
 }
