@@ -4,6 +4,8 @@ import { formatPrice, formatLots, formatRelativeTime } from '@/lib/formatters';
 import { ArrowUpRight, ArrowDownRight, Filter, Download } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { save } from '@tauri-apps/api/dialog';
+import { writeTextFile } from '@tauri-apps/api/fs';
 import {
   Select,
   SelectContent,
@@ -45,28 +47,37 @@ const PositionTable: React.FC<PositionTableProps> = ({ positions, workers }) => 
     return true;
   });
 
-  const handleExport = () => {
-    const csv = [
-      ['Worker', 'Symbol', 'Type', 'Command', 'Entry', 'Lots', 'SL', 'TP', 'Age'].join(','),
-      ...filteredPositions.map(p => [
-        p.workerName,
-        p.symbol,
-        p.type,
-        p.cmd,
-        p.entryPrice,
-        p.currentLots,
-        p.sl,
-        p.tp,
-        formatRelativeTime(p.openTime),
-      ].join(','))
-    ].join('\n');
+  const handleExport = async () => {
+    try {
+      const csv = [
+        ['Worker', 'Symbol', 'Type', 'Command', 'Entry', 'Lots', 'SL', 'TP', 'Age'].join(','),
+        ...filteredPositions.map(p => [
+          p.workerName,
+          p.symbol,
+          p.type,
+          p.cmd,
+          p.entryPrice,
+          p.currentLots,
+          p.sl,
+          p.tp,
+          formatRelativeTime(p.openTime),
+        ].join(','))
+      ].join('\n');
 
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `positions-${Date.now()}.csv`;
-    a.click();
+      const filePath = await save({
+        defaultPath: `positions-${Date.now()}.csv`,
+        filters: [{
+          name: 'CSV',
+          extensions: ['csv']
+        }]
+      });
+
+      if (filePath) {
+        await writeTextFile(filePath, csv);
+      }
+    } catch (error) {
+      console.error('Failed to export CSV:', error);
+    }
   };
 
   return (

@@ -23,6 +23,7 @@ int g_tracking_count = 0;
 
 ulong g_order_tickets[];
 ulong g_order_trade_ids[];
+string g_order_symbols[];
 int g_order_tracking_count = 0;
 
 // Position state tracking for modify detection
@@ -40,7 +41,7 @@ void CheckPositionModifications();
 
 // Helper functions for pending order tracking
 int FindOrderIndex(ulong ticket);
-void AddOrderTracking(ulong ticket, ulong trade_id);
+void AddOrderTracking(ulong ticket, ulong trade_id, string symbol);
 void RemoveOrderTracking(ulong ticket);
 string GetOrderTypeString(ENUM_ORDER_TYPE order_type);
 
@@ -62,6 +63,7 @@ int OnInit()
    
    ArrayResize(g_order_tickets, 0);
    ArrayResize(g_order_trade_ids, 0);
+   ArrayResize(g_order_symbols, 0);
    g_order_tracking_count = 0;
    
    g_connection_lost = false;
@@ -139,7 +141,7 @@ void OnTradeTransaction(
             
             // Generate unique trade ID and track order
             ulong trade_id = (ulong)TimeLocal() * 1000000 + order_ticket;
-            AddOrderTracking(order_ticket, trade_id);
+            AddOrderTracking(order_ticket, trade_id, symbol);
             
             // Determine trade type (buy or sell)
             string trade_type = (order_type == ORDER_TYPE_BUY_LIMIT || order_type == ORDER_TYPE_BUY_STOP) ? "buy" : "sell";
@@ -181,7 +183,7 @@ void OnTradeTransaction(
          if(!was_filled)
          {
             string json = "{\"id\":" + IntegerToString(g_order_trade_ids[idx]) + 
-                         ",\"symbol\":\"\"" + // Symbol not needed for cancel
+                         ",\"symbol\":\"" + g_order_symbols[idx] + "\"" +
                          ",\"lots\":0" +
                          ",\"cmd\":\"cancel\"}";
             
@@ -453,16 +455,18 @@ int FindOrderIndex(ulong ticket)
    return -1;
 }
 
-void AddOrderTracking(ulong ticket, ulong trade_id)
+void AddOrderTracking(ulong ticket, ulong trade_id, string symbol)
 {
    g_order_tracking_count++;
    ArrayResize(g_order_tickets, g_order_tracking_count);
    ArrayResize(g_order_trade_ids, g_order_tracking_count);
+   ArrayResize(g_order_symbols, g_order_tracking_count);
    
    g_order_tickets[g_order_tracking_count - 1] = ticket;
    g_order_trade_ids[g_order_tracking_count - 1] = trade_id;
+   g_order_symbols[g_order_tracking_count - 1] = symbol;
    
-   Print("[SENDER] Tracking pending order: ticket=", ticket, " trade_id=", trade_id);
+   Print("[SENDER] Tracking pending order: ticket=", ticket, " trade_id=", trade_id, " symbol=", symbol);
 }
 
 void RemoveOrderTracking(ulong ticket)
@@ -477,10 +481,12 @@ void RemoveOrderTracking(ulong ticket)
    {
       g_order_tickets[i] = g_order_tickets[i + 1];
       g_order_trade_ids[i] = g_order_trade_ids[i + 1];
+      g_order_symbols[i] = g_order_symbols[i + 1];
    }
    
    ArrayResize(g_order_tickets, g_order_tracking_count);
    ArrayResize(g_order_trade_ids, g_order_tracking_count);
+   ArrayResize(g_order_symbols, g_order_tracking_count);
 }
 
 string GetOrderTypeString(ENUM_ORDER_TYPE order_type)

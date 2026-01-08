@@ -125,6 +125,8 @@ void CheckIncomingTrades()
    if(len == 0)
       return;
    
+   Print("[RECEIVER] Data available: ", len, " bytes");
+   
    // Receive data
    uchar buffer[];
    ArrayResize(buffer, len);
@@ -134,26 +136,36 @@ void CheckIncomingTrades()
    if(received > 0)
    {
       g_last_recv_time = TimeLocal();
+      
+      Print("[RECEIVER] Received ", received, " bytes from worker");
 
       // Convert to string
       string data = CharArrayToString(buffer, 0, received, CP_UTF8);
+      
+      Print("[RECEIVER] Raw data: ", data);
 
       // Parse and execute trade (may contain multiple newline-delimited messages)
       string messages[];
       int count = StringSplit(data, '\n', messages);
+      
+      Print("[RECEIVER] Split into ", count, " messages");
 
       for(int i = 0; i < count; i++)
       {
          if(StringLen(messages[i]) > 0)
          {
+            Print("[RECEIVER] Processing message[", i, "]: ", messages[i]);
+            
             // Check for heartbeat PING message
             if(messages[i] == "PING")
             {
+               Print("[RECEIVER] Heartbeat received");
                // Heartbeat from worker - connection is alive
                // No action needed, just ignore
             }
             else
             {
+               Print("[RECEIVER] Parsing trade signal...");
                ParseAndExecuteTrade(messages[i]);
             }
          }
@@ -179,6 +191,9 @@ void CheckIncomingTrades()
 //+------------------------------------------------------------------+
 bool ParseAndExecuteTrade(string json_data)
 {
+   Print("[RECEIVER] ========== PARSING TRADE SIGNAL ==========");
+   Print("[RECEIVER] JSON: ", json_data);
+   
    ulong trade_id = 0;
    string symbol = "";
    string trade_type = "";
@@ -192,23 +207,29 @@ bool ParseAndExecuteTrade(string json_data)
    // Extract fields from JSON
    if(!ExtractJSONULong(json_data, "id", trade_id)) 
    {
+      Print("[RECEIVER] ERROR: Failed to parse trade_id");
       SendAcknowledgment(false, "Failed to parse trade_id");
       return false;
    }
+   Print("[RECEIVER] Trade ID: ", trade_id);
 
    if(!ExtractJSONString(json_data, "symbol", symbol)) 
    {
+      Print("[RECEIVER] ERROR: Failed to parse symbol");
       SendAcknowledgment(false, "Failed to parse symbol");
 
       return false;
    }
+   Print("[RECEIVER] Symbol: ", symbol);
 
    if(!ExtractJSONDouble(json_data, "lots", lots)) 
    {
+      Print("[RECEIVER] ERROR: Failed to parse lots");
       SendAcknowledgment(false, "Failed to parse lots");
 
       return false;
    }
+   Print("[RECEIVER] Lots: ", lots);
 
    // Optional fields
    ExtractJSONString(json_data, "type", trade_type);  // Optional - not needed for close/modify
@@ -218,14 +239,20 @@ bool ParseAndExecuteTrade(string json_data)
    ExtractJSONString(json_data, "cmd", cmd);
    ExtractJSONString(json_data, "order_type", order_type);
    
+   Print("[RECEIVER] Type: ", trade_type, ", Price: ", price, ", SL: ", sl, ", TP: ", tp);
+   Print("[RECEIVER] Command: ", cmd, ", Order Type: ", order_type);
+   
    // Handle different commands
    bool success = false;
 
    if(cmd == "open")
    {
+      Print("[RECEIVER] Executing OPEN command");
+      
       // Validate trade_type for open command
       if(trade_type == "")
       {
+         Print("[RECEIVER] ERROR: trade_type required for open command");
          SendAcknowledgment(false, "trade_type required for open command");
          return false;
       }
@@ -235,53 +262,82 @@ bool ParseAndExecuteTrade(string json_data)
       // Check if this is a pending order or market order
       if(order_type == "market")
       {
+         Print("[RECEIVER] Executing MARKET order");
+         
          // Execute market order
          if(trade_type == "buy")
          {
+            Print("[RECEIVER] Executing BUY: ", lots, " lots of ", symbol, " | SL: ", sl, " | TP: ", tp);
             success = trade.Buy(lots, symbol, 0, sl, tp, "CopiedTrade");
+            Print("[RECEIVER] BUY result: ", (success ? "SUCCESS" : "FAILED"));
+            if(!success)
+            {
+               Print("[RECEIVER] BUY error code: ", GetLastError());
+               Print("[RECEIVER] Trade result code: ", trade.ResultRetcode());
+               Print("[RECEIVER] Trade result comment: ", trade.ResultRetcodeDescription());
+            }
          }
          else if(trade_type == "sell")
          {
+            Print("[RECEIVER] Executing SELL: ", lots, " lots of ", symbol, " | SL: ", sl, " | TP: ", tp);
             success = trade.Sell(lots, symbol, 0, sl, tp, "CopiedTrade");
+            Print("[RECEIVER] SELL result: ", (success ? "SUCCESS" : "FAILED"));
+            if(!success)
+            {
+               Print("[RECEIVER] SELL error code: ", GetLastError());
+               Print("[RECEIVER] Trade result code: ", trade.ResultRetcode());
+               Print("[RECEIVER] Trade result comment: ", trade.ResultRetcodeDescription());
+            }
          }
          else
          {
+            Print("[RECEIVER] ERROR: Invalid trade_type: ", trade_type);
             SendAcknowledgment(false, "Invalid trade_type: " + trade_type);
             return false;
          }
          
+         // Handle ticket result for market orders
          if(success)
          {
+            Print("[RECEIVER] Getting position ticket...");
             // Get the position ticket from the result
             ticket = trade.ResultDeal();
+            Print("[RECEIVER] ResultDeal: ", ticket);
+            
             if(ticket > 0 && HistoryDealSelect(ticket))
             {
                ticket = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
+               Print("[RECEIVER] Position ID from deal: ", ticket);
             }
             else
             {
                // Fallback: try ResultOrder
                ticket = trade.ResultOrder();
+               Print("[RECEIVER] ResultOrder fallback: ", ticket);
             }
             
             if(ticket > 0)
             {
+               Print("[RECEIVER] Position opened successfully with ticket: ", ticket);
                AddPositionMapping(trade_id, ticket);
                SendAcknowledgment(true, "Market order opened successfully");
             }
             else
             {
+               Print("[RECEIVER] ERROR: Failed to get position ticket");
                SendAcknowledgment(false, "Failed to get position ticket");
             }
          }
          else
          {
+            Print("[RECEIVER] ERROR: Failed to open market order");
             SendAcknowledgment(false, "Failed to open market order");
          }
       }
       else
       {
          // Place pending order
+         Print("[RECEIVER] Executing PENDING order");
          if(price <= 0)
          {
             SendAcknowledgment(false, "Price required for pending orders");
