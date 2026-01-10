@@ -119,8 +119,9 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
   };
 
   return (
-    <div className="flex-1 overflow-auto p-4">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-7xl mx-auto">
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-auto scrollbar-thin p-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-7xl mx-auto">
         {/* System Metrics Card */}
         <Card className="glass-card border-border/50">
           <CardHeader>
@@ -171,7 +172,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
                   <XAxis dataKey="name" />
                   <YAxis allowDecimals={false} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={60}>
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={60} fillOpacity={0.5}>
                     {workerStatusData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={statusColors[entry.status] || 'hsl(var(--chart-5))'} />
                     ))}
@@ -196,7 +197,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
                   <XAxis dataKey="name" />
                   <YAxis allowDecimals={false} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={60}>
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={60} fillOpacity={0.5}>
                     {tradeTypeData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.name === 'Buy' ? 'hsl(var(--chart-2))' : 'hsl(var(--chart-3))'} />
                     ))}
@@ -230,6 +231,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
                     fill="hsl(var(--chart-2))" 
                     radius={[4, 4, 0, 0]}
                     maxBarSize={60}
+                    fillOpacity={0.5}
                   />
                 </BarChart>
               </ChartContainer>
@@ -254,7 +256,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
                 <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
                 <YAxis domain={[0, 'auto']} />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="latency" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} maxBarSize={60} />
+                <Bar dataKey="latency" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} maxBarSize={60} fillOpacity={0.5} />
               </BarChart>
             </ChartContainer>
           </CardContent>
@@ -273,11 +275,12 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
                 <XAxis dataKey="worker" angle={-45} textAnchor="end" height={80} />
                 <YAxis allowDecimals={false} />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="errors" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} maxBarSize={60} />
+                <Bar dataKey="errors" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} maxBarSize={60} fillOpacity={0.5} />
               </BarChart>
             </ChartContainer>
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   );
