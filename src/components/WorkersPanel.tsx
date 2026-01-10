@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import { Worker } from '@/types/trading';
 import WorkerCard from './WorkerCard';
 import { Users, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
@@ -45,9 +46,14 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [addressError, setAddressError] = useState('');
   const [submitError, setSubmitError] = useState('');
+  const [appVersion, setAppVersion] = useState<string>('');
 
   const activeCount = workers.filter(w => w.status === 'active').length;
   const errorCount = workers.filter(w => w.status === 'error').length;
+
+  useEffect(() => {
+    getVersion().then(version => setAppVersion(version));
+  }, []);
 
   const validatePort = (port: string): boolean => {
     const portNum = parseInt(port, 10);
@@ -264,6 +270,14 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
               <WorkerCard key={worker.id} worker={worker} />
             ))}
           </div>
+
+          {appVersion && (
+            <div className="mt-auto p-3 border-t border-border/50">
+              <p className="text-xs text-muted-foreground text-center">
+                <a href="https://trading-rocket.nl/" target='_blank'>Trading Rocket v{appVersion}</a>
+              </p>
+            </div>
+          )}
         </>
       )}
 

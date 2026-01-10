@@ -89,6 +89,13 @@ const Dashboard: React.FC = () => {
                   Signals
                 </TabsTrigger>
                 <TabsTrigger 
+                  value="performance"
+                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  Performance
+                </TabsTrigger>
+                <TabsTrigger 
                   value="errors"
                   className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4 relative"
                 >
@@ -99,13 +106,6 @@ const Dashboard: React.FC = () => {
                       {errors.filter(e => e.severity === 'critical').length}
                     </span>
                   )}
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="performance"
-                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4"
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  Performance
                 </TabsTrigger>
               </TabsList>
             </div>
