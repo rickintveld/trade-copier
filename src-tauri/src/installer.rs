@@ -60,7 +60,7 @@ impl InstanceManager {
         use crate::database::{WorkerState};
         
         // 1) Create worker in DB with 'installing' state so API can return quickly
-        self.db
+        let worker_id = self.db
             .create_worker_with_state(&name, &address, multiplier, WorkerState::Installing)
             .await?;
         
@@ -90,12 +90,12 @@ impl InstanceManager {
                 // Mark as inactive after installation completes - worker will activate when application starts
                 db.update_worker_state(&address_bg, WorkerState::Inactive, None).await?;
                 
-                // Trigger worker reload if callback provided
+                // Start only the newly created worker, not all workers
                 if let Some(tx) = reload_tx {
-                    if let Err(e) = tx.send(crate::worker_manager::WorkerCommand::Reload).await {
-                        eprintln!("[INSTALLER] Failed to trigger worker reload: {}", e);
+                    if let Err(e) = tx.send(crate::worker_manager::WorkerCommand::Start(worker_id)).await {
+                        eprintln!("[INSTALLER] Failed to start worker for new instance: {}", e);
                     } else {
-                        println!("[INSTALLER] Triggered worker reload for new instance '{}'", name_bg);
+                        println!("[INSTALLER] Started worker [{}] for new instance '{}'", worker_id, name_bg);
                     }
                 }
                 
@@ -123,20 +123,20 @@ impl InstanceManager {
     }
 
     /// Delete an existing MT5 instance
-    pub async fn delete_instance(&self, name: &str, force: bool) -> Result<()> {
+    pub async fn delete_instance(&self, worker: &crate::database::WorkerRecord, force: bool) -> Result<()> {
         // Delete instance files and database entry
-        self.inner.delete_instance(name, force, self.db.clone()).await?;
+        self.inner.delete_instance(worker, force, self.db.clone()).await?;
         Ok(())
     }
 
     /// Start a specific MT5 instance
-    pub async fn start_instance(&self, name: &str, force: bool) -> Result<()> {
-        self.inner.start_instance(name, force, self.db.clone()).await
+    pub async fn start_instance(&self, worker: &crate::database::WorkerRecord, force: bool) -> Result<()> {
+        self.inner.start_instance(worker, force, self.db.clone()).await
     }
 
     /// Stop a specific MT5 instance
-    pub async fn stop_instance(&self, name: &str) -> Result<()> {
-        self.inner.stop_instance(name, self.db.clone()).await
+    pub async fn stop_instance(&self, worker: &crate::database::WorkerRecord) -> Result<()> {
+        self.inner.stop_instance(worker, self.db.clone()).await
     }
 
     /// List all MT5 instances

@@ -99,12 +99,12 @@ export const tradeCopierApi = {
     return response.data;
   },
 
-  async startWorker(workerName: string, force?: boolean): Promise<void> {
-    await tauriInvoke('start_instance', { name: workerName, force });
+  async startWorker(workerId: number, force?: boolean): Promise<void> {
+    await tauriInvoke('start_instance', { id: workerId, force });
   },
 
-  async stopWorker(workerName: string): Promise<void> {
-    await tauriInvoke('stop_instance', { name: workerName });
+  async stopWorker(workerId: number): Promise<void> {
+    await tauriInvoke('stop_instance', { id: workerId });
   },
 
   async createWorker(data: { name: string; address: string; multiplier: number; symbol_prefix?: string }): Promise<ApiWorker> {
@@ -117,7 +117,7 @@ export const tradeCopierApi = {
     return response.data;
   },
 
-  async deleteWorker(workerName: string): Promise<void> {
-    await tauriInvoke('delete_instance', { name: workerName, force: true });
+  async deleteWorker(workerId: number): Promise<void> {
+    await tauriInvoke('delete_instance', { id: workerId, force: true });
   },
 };

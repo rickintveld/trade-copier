@@ -14,7 +14,7 @@ function transformWorker(apiWorker: ApiWorker): Worker {
   const [address, port] = apiWorker.address.split(':');
   
   return {
-    id: `worker-${apiWorker.id.toString().padStart(3, '0')}`,
+    id: apiWorker.id,
     name: apiWorker.name,
     status: apiWorker.state,
     tcpAddress: address,

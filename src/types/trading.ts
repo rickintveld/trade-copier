@@ -4,7 +4,7 @@ export type TradeType = 'buy' | 'sell';
 export type ErrorSeverity = 'warning' | 'error' | 'critical';
 
 export interface Worker {
-  id: string;
+  id: number;
   name: string;
   status: WorkerStatus;
   tcpAddress: string;

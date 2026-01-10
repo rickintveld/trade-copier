@@ -109,6 +109,18 @@ pub async fn create_instance(
     multiplier: f64,
     symbol_prefix: Option<String>,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
+    // Validate input using SlaveConfig
+    let config = crate::types::SlaveConfig {
+        name: name.clone(),
+        address: address.clone(),
+        multiplier,
+        symbol_prefix: symbol_prefix.clone().unwrap_or_default(),
+    };
+    
+    if let Err(e) = config.validate() {
+        return Err(format!("Invalid configuration: {}", e));
+    }
+    
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => {
             let worker_tx = state.worker_command_tx.lock().await.clone();
@@ -132,22 +144,27 @@ pub async fn create_instance(
 #[tauri::command]
 pub async fn delete_instance(
     state: State<'_, AppState>,
-    name: String,
+    id: i64,
     force: bool,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
+    // Get worker info from database
+    let worker = state.db.get_worker_by_id(id).await
+        .map_err(|e| format!("Failed to get worker: {}", e))?
+        .ok_or_else(|| format!("Worker with ID {} not found", id))?;
+    
     match InstanceManager::new(state.db.clone()) {
-        Ok(manager) => match manager.delete_instance(&name, force).await {
+        Ok(manager) => match manager.delete_instance(&worker, force).await {
             Ok(()) => {
                 // Stop only the specific worker for the deleted instance
                 let tx = state.worker_command_tx.lock().await;
-                if let Err(e) = tx.send(WorkerCommand::Stop(name.clone())).await {
+                if let Err(e) = tx.send(WorkerCommand::Stop(worker.id)).await {
                     eprintln!("[TAURI] Failed to send stop command: {}", e);
                 }
 
                 Ok(ApiResponse {
                     success: true,
                     data: serde_json::json!({
-                        "message": format!("Instance '{}' deleted successfully. Worker stopped.", name)
+                        "message": format!("Instance '{}' deleted successfully. Worker stopped.", worker.name)
                     }),
                 })
             }
@@ -161,24 +178,29 @@ pub async fn delete_instance(
 #[tauri::command]
 pub async fn start_instance(
     state: State<'_, AppState>,
-    name: String,
+    id: i64,
     force: Option<bool>,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
     let force = force.unwrap_or(false);
     
+    // Get worker info from database
+    let worker = state.db.get_worker_by_id(id).await
+        .map_err(|e| format!("Failed to get worker: {}", e))?
+        .ok_or_else(|| format!("Worker with ID {} not found", id))?;
+    
     match InstanceManager::new(state.db.clone()) {
-        Ok(manager) => match manager.start_instance(&name, force).await {
+        Ok(manager) => match manager.start_instance(&worker, force).await {
             Ok(()) => {
                 // Now send start command to worker manager
                 let tx = state.worker_command_tx.lock().await;
-                if let Err(e) = tx.send(WorkerCommand::Start(name.clone())).await {
+                if let Err(e) = tx.send(WorkerCommand::Start(worker.id)).await {
                     return Err(format!("MT5 instance started but failed to start worker: {}", e));
                 }
 
                 Ok(ApiResponse {
                     success: true,
                     data: serde_json::json!({
-                        "message": format!("Instance '{}' and worker started successfully", name)
+                        "message": format!("Instance '{}' and worker started successfully", worker.name)
                     }),
                 })
             }
@@ -192,18 +214,23 @@ pub async fn start_instance(
 #[tauri::command]
 pub async fn stop_instance(
     state: State<'_, AppState>,
-    name: String,
+    id: i64,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
+    // Get worker info from database
+    let worker = state.db.get_worker_by_id(id).await
+        .map_err(|e| format!("Failed to get worker: {}", e))?
+        .ok_or_else(|| format!("Worker with ID {} not found", id))?;
+    
     // First, stop the worker
     let tx = state.worker_command_tx.lock().await;
-    if let Err(e) = tx.send(WorkerCommand::Stop(name.clone())).await {
+    if let Err(e) = tx.send(WorkerCommand::Stop(worker.id)).await {
         return Err(format!("Failed to send stop command: {}", e));
     }
 
     // Then, stop the MT5 instance (kill the Wine process)
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => {
-            if let Err(e) = manager.stop_instance(&name).await {
+            if let Err(e) = manager.stop_instance(&worker).await {
                 eprintln!("[TAURI] Warning: Failed to stop MT5 instance: {}", e);
             }
         }
@@ -215,7 +242,7 @@ pub async fn stop_instance(
     Ok(ApiResponse {
         success: true,
         data: serde_json::json!({
-            "message": format!("Worker '{}' and MT5 instance stopped successfully", name)
+            "message": format!("Worker '{}' and MT5 instance stopped successfully", worker.name)
         }),
     })
 }

@@ -93,13 +93,9 @@ impl MacInstanceManager {
         Ok(())
     }
 
-    pub async fn delete_instance(&self, name: &str, force: bool, db: Arc<Database>) -> Result<()> {
-        // Get worker from database
-        let worker = db.get_worker_by_name(name).await?
-            .context(format!("Instance '{}' not found", name))?;
-
+    pub async fn delete_instance(&self, worker: &crate::database::WorkerRecord, force: bool, db: Arc<Database>) -> Result<()> {
         if !force {
-            println!("[INSTALLER] Warning: This will delete instance '{}' and all its data", name);
+            println!("[INSTALLER] Warning: This will delete instance '{}' and all its data", worker.name);
             println!("[INSTALLER] Use force=true to confirm deletion");
             bail!("Deletion cancelled - use force=true to confirm");
         }
@@ -120,51 +116,40 @@ impl MacInstanceManager {
             }
         }
 
-        // Remove from database
-        db.delete_worker(name).await?;
+        // Remove from database using ID
+        db.delete_worker_by_id(worker.id).await?;
 
-        println!("[INSTALLER] Instance '{}' deleted successfully", name);
+        println!("[INSTALLER] Instance '{}' deleted successfully", worker.name);
         println!("[INSTALLER] NOTE: Workers will be reloaded automatically");
 
         Ok(())
     }
 
-    pub async fn stop_instance(&self, name: &str, db: Arc<Database>) -> Result<()> {
-        // Get worker from database
-        let worker = db.get_worker_by_name(name).await?
-            .context(format!("Instance '{}' not found", name))?;
-        
-        let wine_prefix = worker.wine_prefix
+    pub async fn stop_instance(&self, worker: &crate::database::WorkerRecord, _db: Arc<Database>) -> Result<()> {
+        let wine_prefix = worker.wine_prefix.as_ref()
             .context("Instance does not have a wine_prefix configured")?;
         let prefix_path = PathBuf::from(wine_prefix);
         
         // Kill the Wine process
         crate::worker::kill_wine_process(&prefix_path).await?;
         
-        println!("[INSTALLER] Instance '{}' stopped", name);
+        println!("[INSTALLER] Instance '{}' stopped", worker.name);
         
         Ok(())
     }
 
-    pub async fn start_instance(&self, name: &str, force: bool, db: Arc<Database>) -> Result<()> {
+    pub async fn start_instance(&self, worker: &crate::database::WorkerRecord, force: bool, db: Arc<Database>) -> Result<()> {
         // Ensure Wine is installed (will install automatically if not present)
         if let Err(e) = super::package_manager::ensure_wine_installed_auto() {
             let error_msg = format!("Wine installation failed: {}", e);
             eprintln!("[INSTALLER] {}", error_msg);
-            // Try to get worker address for error logging
-            if let Ok(Some(worker)) = db.get_worker_by_name(name).await {
-                let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Critical, &error_msg).await;
-            }
+            let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Critical, &error_msg).await;
             return Err(e);
         }
-
-        // Get worker from database
-        let worker = db.get_worker_by_name(name).await?
-            .context(format!("Instance '{}' not found", name))?;
         
-        let wine_prefix = worker.wine_prefix.clone()
+        let wine_prefix = worker.wine_prefix.as_ref()
             .context("Instance does not have a wine_prefix configured")?;
-        let prefix_path = PathBuf::from(&wine_prefix);
+        let prefix_path = PathBuf::from(wine_prefix);
         
         // If force is true, kill any existing Wine process for this prefix
         // Note: We don't kill processes using the port because the worker's TCP server
@@ -205,7 +190,7 @@ impl MacInstanceManager {
             return Err(e);
         }
 
-        println!("[INSTALLER] Instance '{}' started", name);
+        println!("[INSTALLER] Instance '{}' started", worker.name);
 
         Ok(())
     }

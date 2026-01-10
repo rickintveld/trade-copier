@@ -89,13 +89,9 @@ impl WindowsInstanceManager {
         Ok(())
     }
 
-    pub async fn delete_instance(&self, name: &str, force: bool, db: Arc<Database>) -> Result<()> {
-        // Get worker from database
-        let worker = db.get_worker_by_name(name).await?
-            .context(format!("Instance '{}' not found", name))?;
-
+    pub async fn delete_instance(&self, worker: &crate::database::WorkerRecord, force: bool, db: Arc<Database>) -> Result<()> {
         if !force {
-            println!("[INSTALLER] Warning: This will delete instance '{}' and all its data", name);
+            println!("[INSTALLER] Warning: This will delete instance '{}' and all its data", worker.name);
             println!("[INSTALLER] Use force=true to confirm deletion");
             bail!("Deletion cancelled - use force=true to confirm");
         }
@@ -124,7 +120,7 @@ impl WindowsInstanceManager {
                             let _ = Command::new("taskkill")
                                 .args(&["/F", "/PID", &pid.to_string()])
                                 .output();
-                            println!("[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'", pid, name);
+                            println!("[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'", pid, worker.name);
                         }
                     }
                 }
@@ -140,21 +136,17 @@ impl WindowsInstanceManager {
             }
         }
 
-        // Remove from database
-        db.delete_worker(name).await?;
+        // Remove from database using ID
+        db.delete_worker_by_id(worker.id).await?;
 
-        println!("[INSTALLER] Instance '{}' deleted successfully", name);
+        println!("[INSTALLER] Instance '{}' deleted successfully", worker.name);
         println!("[INSTALLER] NOTE: Workers will be reloaded automatically");
 
         Ok(())
     }
 
-    pub async fn start_instance(&self, name: &str, force: bool, db: Arc<Database>) -> Result<()> {
-        // Get worker from database
-        let worker = db.get_worker_by_name(name).await?
-            .context(format!("Instance '{}' not found", name))?;
-        
-        let wine_prefix = worker.wine_prefix
+    pub async fn start_instance(&self, worker: &crate::database::WorkerRecord, force: bool, db: Arc<Database>) -> Result<()> {
+        let wine_prefix = worker.wine_prefix.as_ref()
             .context("Instance does not have a path configured")?;
         let instance_path = PathBuf::from(wine_prefix);
 
@@ -209,7 +201,7 @@ impl WindowsInstanceManager {
             if let Err(e) = Command::new("cmd")
                 .args(&["/C", "start", "", exe_path_str])
                 .spawn()
-                .context(format!("Failed to launch instance '{}'", name)) {
+                .context(format!("Failed to launch instance '{}'", worker.name)) {
                 let error_msg = format!("Failed to launch MT5: {}", e);
                 eprintln!("[INSTALLER] {}", error_msg);
                 let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Critical, &error_msg).await;
@@ -222,17 +214,13 @@ impl WindowsInstanceManager {
             println!("[INSTALLER] [DRY RUN - not on Windows] Would execute: {:?}", exe_path);
         }
 
-        println!("[INSTALLER] Instance '{}' started", name);
+        println!("[INSTALLER] Instance '{}' started", worker.name);
 
         Ok(())
     }
 
-    pub async fn stop_instance(&self, name: &str, db: Arc<Database>) -> Result<()> {
-        // Get worker from database
-        let worker = db.get_worker_by_name(name).await?
-            .context(format!("Instance '{}' not found", name))?;
-        
-        let wine_prefix = worker.wine_prefix
+    pub async fn stop_instance(&self, worker: &crate::database::WorkerRecord, _db: Arc<Database>) -> Result<()> {
+        let wine_prefix = worker.wine_prefix.as_ref()
             .context("Instance does not have a path configured")?;
         let instance_path = PathBuf::from(wine_prefix);
 
@@ -248,7 +236,7 @@ impl WindowsInstanceManager {
                 .context("Failed to execute taskkill")?;
 
             if output.status.success() {
-                println!("[INSTALLER] Successfully stopped MT5 process for instance '{}'", name);
+                println!("[INSTALLER] Successfully stopped MT5 process for instance '{}'", worker.name);
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 eprintln!("[INSTALLER] Warning: Failed to stop MT5 process: {}", stderr);
@@ -260,7 +248,7 @@ impl WindowsInstanceManager {
             println!("[INSTALLER] [DRY RUN - not on Windows] Would kill process for: {:?}", exe_path);
         }
 
-        println!("[INSTALLER] Instance '{}' stopped", name);
+        println!("[INSTALLER] Instance '{}' stopped", worker.name);
 
         Ok(())
     }

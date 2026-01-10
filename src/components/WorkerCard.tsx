@@ -13,7 +13,7 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
 
   const handleStart = async (force: boolean = false) => {
     try {
-      await tradeCopierApi.startWorker(worker.name, force);
+      await tradeCopierApi.startWorker(worker.id, force);
     } catch (error) {
       if (import.meta.env.DEV) {
         console.error('Failed to start worker:', error);
@@ -23,7 +23,7 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
 
   const handleStop = async () => {
     try {
-      await tradeCopierApi.stopWorker(worker.name);
+      await tradeCopierApi.stopWorker(worker.id);
     } catch (error) {
       if (import.meta.env.DEV) {
         console.error('Failed to stop worker:', error);
@@ -33,7 +33,7 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
 
   const handleDelete = async () => {
     try {
-      await tradeCopierApi.deleteWorker(worker.name);
+      await tradeCopierApi.deleteWorker(worker.id);
       setShowDeleteConfirm(false);
     } catch (error) {
       if (import.meta.env.DEV) {
