@@ -65,7 +65,7 @@ const PositionTable: React.FC<PositionTableProps> = ({ positions, workers }) => 
       ].join('\n');
 
       const filePath = await save({
-        defaultPath: `positions-${Date.now()}.csv`,
+        defaultPath: `signals-${Date.now()}.csv`,
         filters: [{
           name: 'CSV',
           extensions: ['csv']
@@ -83,7 +83,7 @@ const PositionTable: React.FC<PositionTableProps> = ({ positions, workers }) => 
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-        <h3 className="font-semibold text-foreground">Positions</h3>
+        <h3 className="font-semibold text-foreground">Signals</h3>
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">

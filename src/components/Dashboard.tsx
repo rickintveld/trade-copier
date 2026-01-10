@@ -5,8 +5,9 @@ import WorkersPanel from '@/components/WorkersPanel';
 import MetricsPanel from '@/components/MetricsPanel';
 import PositionTable from '@/components/PositionTable';
 import ErrorLogPanel from '@/components/ErrorLogPanel';
+import PerformanceChart from '@/components/PerformanceChart';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { TableProperties, AlertCircle } from 'lucide-react';
+import { TableProperties, AlertCircle, BarChart3 } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 
@@ -77,15 +78,15 @@ const Dashboard: React.FC = () => {
         <main className="flex-1 flex flex-col overflow-hidden">
           <MetricsPanel metrics={metrics} lastUpdate={lastUpdate} />
 
-          <Tabs defaultValue="positions" className="flex-1 flex flex-col overflow-hidden">
+          <Tabs defaultValue="signals" className="flex-1 flex flex-col overflow-hidden">
             <div className="px-4 border-b border-border/50 bg-card/30">
               <TabsList className="h-12 bg-transparent border-0 gap-1">
                 <TabsTrigger 
-                  value="positions"
+                  value="signals"
                   className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4"
                 >
                   <TableProperties className="w-4 h-4" />
-                  Positions
+                  Signals
                 </TabsTrigger>
                 <TabsTrigger 
                   value="errors"
@@ -99,10 +100,17 @@ const Dashboard: React.FC = () => {
                     </span>
                   )}
                 </TabsTrigger>
+                <TabsTrigger 
+                  value="performance"
+                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  Performance
+                </TabsTrigger>
               </TabsList>
             </div>
 
-            <TabsContent value="positions" className="flex-1 m-0 overflow-hidden">
+            <TabsContent value="signals" className="flex-1 m-0 overflow-hidden">
               <PositionTable 
                 positions={positions} 
                 workers={workers.map(w => ({ id: w.id, name: w.name }))}
@@ -111,6 +119,15 @@ const Dashboard: React.FC = () => {
 
             <TabsContent value="errors" className="flex-1 m-0 overflow-hidden">
               <ErrorLogPanel errors={errors} />
+            </TabsContent>
+
+            <TabsContent value="performance" className="flex-1 m-0 overflow-hidden">
+              <PerformanceChart 
+                workers={workers}
+                positions={positions}
+                errors={errors}
+                metrics={metrics}
+              />
             </TabsContent>
           </Tabs>
         </main>

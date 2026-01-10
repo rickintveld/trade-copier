@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Worker } from '@/types/trading';
 import { formatRelativeTime, formatLatency } from '@/lib/formatters';
 import { tradeCopierApi } from '@/lib/api';
-import { Wifi, WifiOff, Activity, Clock, Gauge, Trash2 } from 'lucide-react';
+import { Wifi, WifiOff, Activity, Clock, Gauge, Trash2, RotateCw } from 'lucide-react';
 
 interface WorkerCardProps {
   worker: Worker;
@@ -132,41 +132,39 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
       </div>
 
       <div className="mt-3 pt-3 border-t border-border/50">
-        <div className="flex flex-col gap-2">
-          <div className="flex gap-2">
-            {worker.status === 'active' ? (
-              <button
-                onClick={handleStop}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-status-error rounded hover:bg-status-error/90 transition-colors"
-              >
-                Stop Worker
-              </button>
-            ) : (
-              <button
-                onClick={() => handleStart(false)}
-                disabled={worker.status === 'installing'}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary rounded hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
-              >
-                {worker.status === 'installing' ? 'Installing...' : 'Start Worker'}
-              </button>
-            )}
+        <div className="flex gap-2">
+          {worker.status === 'active' ? (
             <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="px-4 py-2 text-sm font-medium text-white bg-status-error/80 rounded hover:bg-status-error transition-colors"
-              title="Delete Worker"
+              onClick={handleStop}
+              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-status-error rounded hover:bg-status-error/90 transition-colors"
             >
-              <Trash2 className="w-4 h-4" />
+              Stop Worker
             </button>
-          </div>
+          ) : (
+            <button
+              onClick={() => handleStart(false)}
+              disabled={worker.status === 'installing' || worker.status === 'error'}
+              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary rounded hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
+            >
+              {worker.status === 'installing' ? 'Installing...' : 'Start Worker'}
+            </button>
+          )}
           {(worker.status === 'error' || worker.status === 'inactive') && (
             <button
               onClick={() => handleStart(true)}
-              className="w-full px-4 py-2 text-sm font-medium text-white bg-status-warning rounded hover:bg-status-warning/90 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-white bg-status-warning/80 rounded hover:bg-status-warning transition-colors"
               title="Force restart - kills any process using the worker's port and restarts"
             >
-              Force Restart
+              <RotateCw className="w-4 h-4" />
             </button>
           )}
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="px-4 py-2 text-sm font-medium text-white bg-status-error/80 rounded hover:bg-status-error transition-colors"
+            title="Delete Worker"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
