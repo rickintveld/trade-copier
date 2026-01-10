@@ -24,7 +24,7 @@
       "fs": {
         "all": false,
         "writeFile": true,
-        "scope": ["$DOWNLOAD/*", "$DOCUMENT/*", "$DESKTOP/*", "$HOME/*"]
+        "scope": ["$DOWNLOAD/*", "$DOCUMENT/*", "$DESKTOP/*"]
       }
     },
     "bundle": {
@@ -63,7 +63,7 @@
       }
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'"
     },
     "updater": {
       "active": false

@@ -77,7 +77,7 @@ pub fn copy_expert_advisors(wine_prefix: &Path) -> Result<()> {
                     // On macOS, the executable is in Contents/MacOS/, so we need to go up to Resources/
                     // Tauri bundles resources preserving the source path structure
                     let resource_path_new = exe_dir.parent()
-                        .and_then(|p| Some(p.join("Resources/src/mql5/Trading Rocket")));
+                        .map(|p| p.join("Resources/src/mql5/Trading Rocket"));
                     
                     if let Some(ref path) = resource_path_new {
                         if path.exists() {
@@ -88,7 +88,7 @@ pub fn copy_expert_advisors(wine_prefix: &Path) -> Result<()> {
                     // Also try without src/ prefix (in case bundle config changes)
                     if source_dir.is_none() {
                         let resource_path_old = exe_dir.parent()
-                            .and_then(|p| Some(p.join("Resources/mql5/Trading Rocket")));
+                            .map(|p| p.join("Resources/mql5/Trading Rocket"));
                         
                         if let Some(ref path) = resource_path_old {
                             if path.exists() {
@@ -184,7 +184,7 @@ pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result
                     // On macOS, the executable is in Contents/MacOS/, so we need to go up to Resources/
                     // Tauri bundles resources preserving the source path structure
                     let resource_path_new = exe_dir.parent()
-                        .and_then(|p| Some(p.join("Resources/src/mql5/Profiles/Templates/Default.tpl")));
+                        .map(|p| p.join("Resources/src/mql5/Profiles/Templates/Default.tpl"));
                     
                     if let Some(ref path) = resource_path_new {
                         if path.exists() {
@@ -195,7 +195,7 @@ pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result
                     // Also try without src/ prefix (in case bundle config changes)
                     if source_file.is_none() {
                         let resource_path_old = exe_dir.parent()
-                            .and_then(|p| Some(p.join("Resources/mql5/Profiles/Templates/Default.tpl")));
+                            .map(|p| p.join("Resources/mql5/Profiles/Templates/Default.tpl"));
                         
                         if let Some(ref path) = resource_path_old {
                             if path.exists() {

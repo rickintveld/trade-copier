@@ -5,7 +5,7 @@ use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
 use std::sync::Arc;
 use std::time::{Instant, Duration};
 use tokio::sync::Mutex;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use socket2::{Socket, TcpKeepalive};
 use crate::database::{Database, WorkerState, ErrorSeverity};
 use crate::types::{Trade, SlaveConfig};
@@ -21,15 +21,15 @@ pub async fn run_worker(
 
     // Set worker state to activated in database
     let wine_prefix_str = wine_prefix.as_ref().map(|p| p.to_string_lossy().to_string());
-    if let Err(e) = db.upsert_worker(
-        &slave.name,
-        &slave.address,
-        slave.multiplier,
-        WorkerState::Active,
-        None,
-        wine_prefix_str.as_deref(),
-        Some(&slave.symbol_prefix),
-    ).await {
+    if let Err(e) = db.upsert_worker(crate::database::WorkerUpsertConfig {
+        name: slave.name.clone(),
+        address: slave.address.clone(),
+        multiplier: slave.multiplier,
+        state: WorkerState::Active,
+        error: None,
+        wine_prefix: wine_prefix_str,
+        symbol_prefix: slave.symbol_prefix.clone(),
+    }).await {
         eprintln!("[WORKER:{}] Failed to update database on startup: {}", slave.name, e);
     }
 
@@ -154,7 +154,7 @@ pub async fn run_worker(
                 println!("[WORKER:{}] Received trade: {:?}", slave.name, trade);
 
                 // Apply risk multiplier
-                trade.lots = trade.lots * slave.multiplier;
+                trade.lots *= slave.multiplier;
                 trade.lots = (trade.lots * 100.0).round() / 100.0; // Round to 2 decimals
                 
                 // Apply symbol prefix if configured
@@ -364,7 +364,7 @@ async fn monitor_wine_process(
 }
 
 /// Check if a Wine process is running for the given prefix
-async fn is_wine_running(wine_prefix: &PathBuf) -> Result<bool> {
+async fn is_wine_running(wine_prefix: &Path) -> Result<bool> {
     // Construct the path to the MT5 executable
     let mt5_path = wine_prefix.join("drive_c/Program Files/MetaTrader 5/terminal64.exe");
     let mt5_path_str = mt5_path.display().to_string();
@@ -437,6 +437,7 @@ fn configure_tcp_socket(stream: &tokio::net::TcpStream) -> Result<()> {
     use std::os::unix::io::{AsRawFd, FromRawFd};
     
     let fd = stream.as_raw_fd();
+    // Borrow the socket without taking ownership
     let socket = unsafe { Socket::from_raw_fd(fd) };
     
     // Enable TCP keep-alive with aggressive settings
@@ -444,19 +445,16 @@ fn configure_tcp_socket(stream: &tokio::net::TcpStream) -> Result<()> {
         .with_time(Duration::from_secs(30))      // Start probes after 30s idle
         .with_interval(Duration::from_secs(10)); // Probe every 10s
     
-    socket.set_tcp_keepalive(&keepalive)?;
+    let result = socket.set_tcp_keepalive(&keepalive)
+        .and_then(|_| socket.set_nodelay(true))
+        .and_then(|_| socket.set_read_timeout(Some(Duration::from_secs(30))))
+        .and_then(|_| socket.set_write_timeout(Some(Duration::from_secs(10))));
     
-    // Enable TCP_NODELAY to disable Nagle's algorithm for low latency
-    socket.set_nodelay(true)?;
-    
-    // Set read/write timeouts
-    socket.set_read_timeout(Some(Duration::from_secs(30)))?;
-    socket.set_write_timeout(Some(Duration::from_secs(10)))?;
-    
-    // Don't close the socket - just configured it
+    // Prevent socket from being dropped and closing the fd
+    // We borrowed it from tokio's TcpStream which owns it
     std::mem::forget(socket);
     
-    Ok(())
+    result.map_err(|e: std::io::Error| anyhow::anyhow!(e))
 }
 
 /// Monitor connection health with periodic heartbeat
@@ -526,67 +524,85 @@ async fn send_trade(
     db: &Arc<Database>,
     address: &str,
 ) -> Result<u64> {
+    let trade_json = serde_json::to_string(trade)?;
+    let message = format!("{}
+", trade_json);
+    
+    // Start timing
+    let start = Instant::now();
+    
+    // Lock for the entire send/receive operation
+    // Note: While this still holds the lock during I/O, it's necessary because
+    // we need exclusive access to the stream for the full request-response cycle
     let mut conn_guard = connection.lock().await;
     
     if let Some(stream) = conn_guard.as_mut() {
-        let trade_json = serde_json::to_string(trade)?;
-        let message = format!("{}
-", trade_json);
-        
-        // Start timing
-        let start = Instant::now();
-        
         // Send the trade
-        match stream.write_all(message.as_bytes()).await {
-            Ok(_) => {
-                println!("[WORKER:{}] Sent trade: {}", worker_name, trade_json);
-                
-                // Wait for acknowledgment from MT5 receiver
-                let mut reader = BufReader::new(stream);
-                let mut ack_line = String::new();
-                
-                match reader.read_line(&mut ack_line).await {
-                    Ok(0) => {
-                        // Connection closed
-                        eprintln!("[WORKER:{}] Connection closed while waiting for acknowledgment", worker_name);
-                        *conn_guard = None;
-                        
-                        // Update mt5_connected to false
-                        if let Err(e) = db.update_mt5_connected(address, false).await {
-                            eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, e);
-                        }
-                        
-                        Err(anyhow::anyhow!("Connection closed"))
-                    }
-                    Ok(_) => {
-                        // Calculate latency in microseconds
-                        let latency_us = start.elapsed().as_micros() as u64;
-                        println!("[WORKER:{}] Received acknowledgment: {}", worker_name, ack_line.trim());
-                        Ok(latency_us)
-                    }
-                    Err(e) => {
-                        eprintln!("[WORKER:{}] Read error: {}", worker_name, e);
-                        *conn_guard = None;
-                        
-                        // Update mt5_connected to false
-                        if let Err(db_err) = db.update_mt5_connected(address, false).await {
-                            eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
-                        }
-                        
-                        Err(anyhow::anyhow!("Failed to read acknowledgment: {}", e))
-                    }
-                }
+        if let Err(e) = stream.write_all(message.as_bytes()).await {
+            eprintln!("[WORKER:{}] Write error, connection lost: {}", worker_name, e);
+            *conn_guard = None; // Clear dead connection
+            
+            // Update mt5_connected to false
+            if let Err(db_err) = db.update_mt5_connected(address, false).await {
+                eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
             }
-            Err(e) => {
-                eprintln!("[WORKER:{}] Write error, connection lost: {}", worker_name, e);
-                *conn_guard = None; // Clear dead connection
+            
+            return Err(anyhow::anyhow!("Connection lost: {}", e));
+        }
+        
+        println!("[WORKER:{}] Sent trade: {}", worker_name, trade_json);
+        
+        // Wait for acknowledgment from MT5 receiver with timeout
+        let mut reader = BufReader::new(stream);
+        let mut ack_line = String::new();
+        
+        // 5 second timeout for acknowledgment
+        let read_result = tokio::time::timeout(
+            Duration::from_secs(5),
+            reader.read_line(&mut ack_line)
+        ).await;
+        
+        match read_result {
+            Err(_) => {
+                // Timeout occurred
+                eprintln!("[WORKER:{}] Timeout waiting for acknowledgment (5s)", worker_name);
+                *conn_guard = None;
+                
+                // Update mt5_connected to false
+                if let Err(e) = db.update_mt5_connected(address, false).await {
+                    eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, e);
+                }
+                
+                Err(anyhow::anyhow!("Acknowledgment timeout"))
+            }
+            Ok(Ok(0)) => {
+                // Connection closed
+                eprintln!("[WORKER:{}] Connection closed while waiting for acknowledgment", worker_name);
+                *conn_guard = None;
+                
+                // Update mt5_connected to false
+                if let Err(e) = db.update_mt5_connected(address, false).await {
+                    eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, e);
+                }
+                
+                Err(anyhow::anyhow!("Connection closed"))
+            }
+            Ok(Ok(_)) => {
+                // Calculate latency in microseconds
+                let latency_us = start.elapsed().as_micros() as u64;
+                println!("[WORKER:{}] Received acknowledgment: {}", worker_name, ack_line.trim());
+                Ok(latency_us)
+            }
+            Ok(Err(e)) => {
+                eprintln!("[WORKER:{}] Read error: {}", worker_name, e);
+                *conn_guard = None;
                 
                 // Update mt5_connected to false
                 if let Err(db_err) = db.update_mt5_connected(address, false).await {
                     eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
                 }
                 
-                Err(anyhow::anyhow!("Connection lost: {}", e))
+                Err(anyhow::anyhow!("Failed to read acknowledgment: {}", e))
             }
         }
     } else {

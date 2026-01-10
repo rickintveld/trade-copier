@@ -119,7 +119,7 @@ pub fn install_wine() -> Result<()> {
     println!("[INSTALLER] Installing wine-stable (this may take several minutes)...");
     
     let status = Command::new(brew_cmd)
-        .args(&["install", "--cask", "wine-stable"])
+        .args(["install", "--cask", "wine-stable"])
         .status()
         .context("Failed to execute brew install command")?;
     

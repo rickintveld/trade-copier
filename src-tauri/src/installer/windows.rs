@@ -70,15 +70,15 @@ impl WindowsInstanceManager {
 
         // Save worker to database with instance path (Windows doesn't use Wine)
         let path_str = instance_path.to_string_lossy().to_string();
-        db.upsert_worker(
-            &name,
-            &address,
+        db.upsert_worker(crate::database::WorkerUpsertConfig {
+            name: name.clone(),
+            address: address.clone(),
             multiplier,
-            WorkerState::Inactive,
-            None,
-            Some(&path_str),
-            Some(&symbol_prefix),
-        ).await?;
+            state: WorkerState::Inactive,
+            error: None,
+            wine_prefix: Some(path_str),
+            symbol_prefix,
+        }).await?;
 
         println!("[INSTALLER] Instance '{}' created successfully!", name);
         println!("[INSTALLER]   Path: {:?}", instance_path);
@@ -100,16 +100,33 @@ impl WindowsInstanceManager {
             bail!("Deletion cancelled - use force=true to confirm");
         }
 
-        // Stop the MT5 process if it's running
+        // Stop the MT5 process for this specific instance
         #[cfg(target_os = "windows")]
         {
-            let output = Command::new("taskkill")
-                .args(&["/F", "/IM", "terminal64.exe"])
-                .output();
-            
-            if let Ok(result) = output {
-                if result.status.success() {
-                    println!("[INSTALLER] Stopped MT5 process for instance '{}'", name);
+            // Find and kill only processes running from this instance's directory
+            // Use wmic to find PIDs of terminal64.exe with specific path
+            if let Some(instance_prefix) = &worker.wine_prefix {
+                let instance_path = PathBuf::from(instance_prefix);
+                let exe_path = instance_path.join("terminal64.exe");
+                let exe_path_str = exe_path.to_string_lossy().replace("\\", "\\\\");
+                
+                // Query for processes with this specific executable path
+                let query = format!("process where ExecutablePath='{}' get ProcessId", exe_path_str);
+                let output = Command::new("wmic")
+                    .args(&["process", "where", &format!("ExecutablePath='{}'", exe_path_str), "get", "ProcessId"])
+                    .output();
+                
+                if let Ok(result) = output {
+                    let stdout = String::from_utf8_lossy(&result.stdout);
+                    // Parse PIDs from output and kill each one
+                    for line in stdout.lines().skip(1) { // Skip header
+                        if let Ok(pid) = line.trim().parse::<u32>() {
+                            let _ = Command::new("taskkill")
+                                .args(&["/F", "/PID", &pid.to_string()])
+                                .output();
+                            println!("[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'", pid, name);
+                        }
+                    }
                 }
             }
         }
@@ -132,7 +149,7 @@ impl WindowsInstanceManager {
         Ok(())
     }
 
-    pub async fn start_instance(&self, name: &str, db: Arc<Database>) -> Result<()> {
+    pub async fn start_instance(&self, name: &str, force: bool, db: Arc<Database>) -> Result<()> {
         // Get worker from database
         let worker = db.get_worker_by_name(name).await?
             .context(format!("Instance '{}' not found", name))?;
@@ -140,6 +157,27 @@ impl WindowsInstanceManager {
         let wine_prefix = worker.wine_prefix
             .context("Instance does not have a path configured")?;
         let instance_path = PathBuf::from(wine_prefix);
+
+        // If force is true, kill any existing MT5 processes
+        if force {
+            println!("[INSTALLER] Force start requested, killing existing MT5 processes...");
+            
+            #[cfg(target_os = "windows")]
+            {
+                let output = Command::new("taskkill")
+                    .args(&["/F", "/IM", "terminal64.exe"])
+                    .output();
+                
+                if let Ok(result) = output {
+                    if result.status.success() {
+                        println!("[INSTALLER] Killed existing MT5 processes");
+                    }
+                }
+            }
+            
+            // Give process time to fully terminate
+            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        }
 
         let exe_path = instance_path.join("terminal64.exe");
 
@@ -166,8 +204,10 @@ impl WindowsInstanceManager {
 
         #[cfg(target_os = "windows")]
         {
+            let exe_path_str = exe_path.to_str()
+                .context("Invalid UTF-8 in executable path")?;
             if let Err(e) = Command::new("cmd")
-                .args(&["/C", "start", "", exe_path.to_str().unwrap()])
+                .args(&["/C", "start", "", exe_path_str])
                 .spawn()
                 .context(format!("Failed to launch instance '{}'", name)) {
                 let error_msg = format!("Failed to launch MT5: {}", e);

@@ -82,7 +82,7 @@ impl InstanceManager {
                 // Download installer
                 let installer_path = common::download_mt5_installer().await?;
                 // Run platform-specific creation (may install MT5)
-                let _instance = inner.create_instance(name_bg.clone(), address_bg.clone(), multiplier, symbol_prefix_bg.clone(), &installer_path, db.clone()).await?;
+                inner.create_instance(name_bg.clone(), address_bg.clone(), multiplier, symbol_prefix_bg.clone(), &installer_path, db.clone()).await?;
                 // Clean up
                 if let Err(e) = std::fs::remove_file(&installer_path) {
                     eprintln!("[INSTALLER] Warning: Failed to remove installer: {}", e);

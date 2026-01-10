@@ -34,8 +34,11 @@ async fn handle_connection(
     tx: broadcast::Sender<Trade>,
     addr: std::net::SocketAddr,
 ) -> Result<()> {
+    println!("[ROUTER] Master MT5 connected from {}", addr);
+    
     let reader = BufReader::new(stream);
     let mut lines = reader.lines();
+    let mut trade_count = 0;
 
     while let Some(line) = lines.next_line().await? {
         if line.is_empty() {
@@ -44,6 +47,7 @@ async fn handle_connection(
 
         match serde_json::from_str::<Trade>(&line) {
             Ok(trade) => {
+                trade_count += 1;
                 println!("[ROUTER] Received trade from {}: {:?}", addr, trade);
                 
                 // Broadcast to all workers
@@ -62,6 +66,7 @@ async fn handle_connection(
         }
     }
 
-    println!("[ROUTER] Connection closed from {}", addr);
+    println!("[ROUTER] Master MT5 disconnected from {} (processed {} trades)", addr, trade_count);
+    println!("[ROUTER] Waiting for master MT5 to reconnect...");
     Ok(())
 }

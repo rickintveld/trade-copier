@@ -167,22 +167,14 @@ impl Database {
         Ok(Self { conn })
     }
     
-    pub async fn upsert_worker(
-        &self,
-        name: &str,
-        address: &str,
-        multiplier: f64,
-        state: WorkerState,
-        error: Option<&str>,
-        wine_prefix: Option<&str>,
-        symbol_prefix: Option<&str>,
-    ) -> Result<()> {
-        let state_str = state.as_str().to_string();
-        let name = name.to_string();
-        let address = address.to_string();
-        let error = error.map(|s| s.to_string());
-        let wine_prefix = wine_prefix.map(|s| s.to_string());
-        let symbol_prefix = symbol_prefix.unwrap_or("").to_string();
+    pub async fn upsert_worker(&self, config: WorkerUpsertConfig) -> Result<()> {
+        let state_str = config.state.as_str().to_string();
+        let name = config.name;
+        let address = config.address;
+        let multiplier = config.multiplier;
+        let error = config.error;
+        let wine_prefix = config.wine_prefix;
+        let symbol_prefix = config.symbol_prefix;
         
         self.conn.call(move |conn| {
             conn.execute(
@@ -710,6 +702,17 @@ pub struct WorkerConfig {
     pub name: String,
     pub address: String,
     pub multiplier: f64,
+    pub wine_prefix: Option<String>,
+    pub symbol_prefix: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkerUpsertConfig {
+    pub name: String,
+    pub address: String,
+    pub multiplier: f64,
+    pub state: WorkerState,
+    pub error: Option<String>,
     pub wine_prefix: Option<String>,
     pub symbol_prefix: String,
 }

@@ -37,7 +37,7 @@ pub async fn get_workers(state: State<'_, AppState>) -> Result<ApiResponse<serde
     match state.db.get_all_workers().await {
         Ok(workers) => Ok(ApiResponse {
             success: true,
-            data: serde_json::to_value(workers).unwrap(),
+            data: serde_json::to_value(workers).map_err(|e| e.to_string())?,
         }),
         Err(e) => Err(e.to_string()),
     }
@@ -52,7 +52,7 @@ pub async fn get_trades(
     match state.db.get_all_trades(limit).await {
         Ok(trades) => Ok(ApiResponse {
             success: true,
-            data: serde_json::to_value(trades).unwrap(),
+            data: serde_json::to_value(trades).map_err(|e| e.to_string())?,
         }),
         Err(e) => Err(e.to_string()),
     }
@@ -67,7 +67,7 @@ pub async fn get_errors(
     match state.db.get_all_errors(limit).await {
         Ok(errors) => Ok(ApiResponse {
             success: true,
-            data: serde_json::to_value(errors).unwrap(),
+            data: serde_json::to_value(errors).map_err(|e| e.to_string())?,
         }),
         Err(e) => Err(e.to_string()),
     }
@@ -79,7 +79,7 @@ pub async fn get_system_metrics(state: State<'_, AppState>) -> Result<ApiRespons
     match state.db.get_system_metrics().await {
         Ok(metrics) => Ok(ApiResponse {
             success: true,
-            data: serde_json::to_value(metrics).unwrap(),
+            data: serde_json::to_value(metrics).map_err(|e| e.to_string())?,
         }),
         Err(e) => Err(e.to_string()),
     }
@@ -92,7 +92,7 @@ pub async fn get_instances(state: State<'_, AppState>) -> Result<ApiResponse<ser
         Ok(manager) => match manager.list_instances().await {
             Ok(instances) => Ok(ApiResponse {
                 success: true,
-                data: serde_json::to_value(instances).unwrap(),
+                data: serde_json::to_value(instances).map_err(|e| e.to_string())?,
             }),
             Err(e) => Err(e.to_string()),
         },
@@ -119,7 +119,7 @@ pub async fn create_instance(
             {
                 Ok(instance) => Ok(ApiResponse {
                     success: true,
-                    data: serde_json::to_value(instance).unwrap(),
+                    data: serde_json::to_value(instance).map_err(|e| e.to_string())?,
                 }),
                 Err(e) => Err(e.to_string()),
             }

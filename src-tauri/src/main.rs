@@ -18,7 +18,9 @@ use database::Database;
 use tauri_commands::AppState;
 use types::Trade;
 
-const BROADCAST_CHANNEL_SIZE: usize = 1024;
+// Increased to 8192 to handle high-frequency trading without dropping messages
+// This allows buffering ~8K trades before lagging workers cause drops
+const BROADCAST_CHANNEL_SIZE: usize = 8192;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -73,7 +75,7 @@ async fn main() -> Result<()> {
 
     // Spawn system metrics collector (runs every 30 seconds)
     let metrics_db = db.clone();
-    let metrics_start_time = start_time.clone();
+    let metrics_start_time = start_time;
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
         loop {

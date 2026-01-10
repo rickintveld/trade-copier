@@ -73,15 +73,15 @@ impl MacInstanceManager {
 
         // Save worker to database with wine_prefix
         let prefix_str = prefix_path.to_string_lossy().to_string();
-        db.upsert_worker(
-            &name,
-            &address,
+        db.upsert_worker(crate::database::WorkerUpsertConfig {
+            name: name.clone(),
+            address: address.clone(),
             multiplier,
-            WorkerState::Inactive,
-            None,
-            Some(&prefix_str),
-            Some(&symbol_prefix),
-        ).await?;
+            state: WorkerState::Inactive,
+            error: None,
+            wine_prefix: Some(prefix_str),
+            symbol_prefix,
+        }).await?;
 
         println!("[INSTALLER] Instance '{}' created successfully!", name);
         println!("[INSTALLER]   ID: {}", id);

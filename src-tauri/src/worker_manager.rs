@@ -178,7 +178,7 @@ impl WorkerManager {
         };
         
         // Parse wine prefix path if present
-        let wine_prefix = worker_cfg.wine_prefix.as_ref().map(|p| std::path::PathBuf::from(p));
+        let wine_prefix = worker_cfg.wine_prefix.as_ref().map(std::path::PathBuf::from);
         
         let handle = tokio::spawn(async move {
             if let Err(e) = worker::run_worker(slave.clone(), rx, db_clone, worker_shutdown_rx, wine_prefix).await {
