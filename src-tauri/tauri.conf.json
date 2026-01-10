@@ -29,8 +29,8 @@
     },
     "bundle": {
       "active": true,
-      "category": "DeveloperTool",
-      "copyright": "",
+      "category": "Finance",
+      "copyright": "Copyright (c) 2026 Rick in 't Veld. All rights reserved.",
       "deb": {
         "depends": []
       },
@@ -42,10 +42,10 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.trade-copier.app",
-      "longDescription": "",
+      "identifier": "dev.rickintveld.trade-copier",
+      "longDescription": "Trade Copier is a professional-grade desktop application for replicating MetaTrader 5 trades across multiple trading terminals in real-time. Featuring advanced risk management with customizable lot multipliers, low-latency TCP-based architecture, comprehensive audit logging, and automated MT5 instance management. Perfect for prop traders, fund managers, and trading educators who need reliable trade copying with microsecond-precision performance tracking.",
       "macOS": {
-        "entitlements": null,
+        "entitlements": "entitlements.plist",
         "exceptionDomain": "",
         "frameworks": [],
         "providerShortName": null,
@@ -54,7 +54,7 @@
       "resources": [
         "src/mql5/**/*"
       ],
-      "shortDescription": "",
+      "shortDescription": "Professional trade copier for MetaTrader 5 with real-time replication and risk management.",
       "targets": "all",
       "windows": {
         "certificateThumbprint": null,

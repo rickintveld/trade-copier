@@ -15,7 +15,9 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
     try {
       await tradeCopierApi.startWorker(worker.name, force);
     } catch (error) {
-      console.error('Failed to start worker:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to start worker:', error);
+      }
     }
   };
 
@@ -23,7 +25,9 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
     try {
       await tradeCopierApi.stopWorker(worker.name);
     } catch (error) {
-      console.error('Failed to stop worker:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to stop worker:', error);
+      }
     }
   };
 
@@ -32,7 +36,9 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
       await tradeCopierApi.deleteWorker(worker.name);
       setShowDeleteConfirm(false);
     } catch (error) {
-      console.error('Failed to delete worker:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to delete worker:', error);
+      }
     }
   };
   const statusColors = {

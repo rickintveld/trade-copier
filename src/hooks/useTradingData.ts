@@ -118,13 +118,17 @@ export const useTradingData = (): UseTradingDataReturn => {
           totalWorkers: apiMetrics.total_workers,
         });
       } catch (metricsError) {
-        console.warn('Failed to fetch system metrics:', metricsError);
+        if (import.meta.env.DEV) {
+          console.warn('Failed to fetch system metrics:', metricsError);
+        }
       }
       
       setIsConnected(true);
       setLastUpdate(new Date());
     } catch (error) {
-      console.error('Failed to fetch trading data:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to fetch trading data:', error);
+      }
       setIsConnected(false);
       
       // Clear all data when API is offline

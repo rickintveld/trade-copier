@@ -76,7 +76,9 @@ const PositionTable: React.FC<PositionTableProps> = ({ positions, workers }) => 
         await writeTextFile(filePath, csv);
       }
     } catch (error) {
-      console.error('Failed to export CSV:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to export CSV:', error);
+      }
     }
   };
 

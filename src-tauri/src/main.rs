@@ -10,6 +10,7 @@ mod worker;
 mod worker_manager;
 
 use anyhow::Result;
+use log::{info, error, warn};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, Mutex};
@@ -24,16 +25,24 @@ const BROADCAST_CHANNEL_SIZE: usize = 8192;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("🚀 Trade Copier Starting...");
+    // Initialize logging - only in debug mode to avoid console output in release
+    #[cfg(debug_assertions)]
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .init();
+
+    info!("Trade Copier starting...");
 
     // Initialize database - use Tauri app data directory
     let app_data_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .ok_or_else(|| anyhow::anyhow!("Failed to get local data directory"))?
         .join("trade-copier");
     std::fs::create_dir_all(&app_data_dir)?;
     let db_path = app_data_dir.join("trade_copier.db");
-    let db = Arc::new(Database::new(db_path.to_str().unwrap()).await?);
-    println!("💾 Database initialized at {:?}", db_path);
+    let db_path_str = db_path.to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid database path"))?;
+    let db = Arc::new(Database::new(db_path_str).await?);
+    info!("Database initialized at {:?}", db_path);
 
     // Track start time for uptime calculation
     let start_time = Instant::now();
@@ -57,7 +66,7 @@ async fn main() -> Result<()> {
     // Sync database state with actual running workers on startup
     // This handles the case where the app crashed and workers are marked active but not running
     if let Err(e) = worker_manager.sync_database_state().await {
-        eprintln!("[STARTUP] Failed to sync worker database state: {}", e);
+        warn!("Failed to sync worker database state: {}", e);
     }
     
     // Spawn worker manager event loop
@@ -69,7 +78,7 @@ async fn main() -> Result<()> {
     // Spawn router
     tokio::spawn(async move {
         if let Err(e) = router::run_router(tx).await {
-            eprintln!("[ROUTER] Error: {}", e);
+            error!("Router error: {}", e);
         }
     });
 
@@ -98,13 +107,13 @@ async fn main() -> Result<()> {
                 .upsert_system_metrics("online", 5000, true, total_workers, active_workers, uptime_seconds)
                 .await
             {
-                eprintln!("[METRICS] Failed to update system metrics: {}", e);
+                error!("Failed to update system metrics: {}", e);
             }
         }
     });
 
-    println!("✅ Trade Copier backend is running");
-    println!("📡 TCP Router listening on port 5000");
+    info!("Trade Copier backend is running");
+    info!("TCP Router listening on port 5000");
 
     // Build and run Tauri app
     tauri::Builder::default()
@@ -122,19 +131,19 @@ async fn main() -> Result<()> {
             tauri_commands::stop_instance,
         ])
         .setup(|_app| {
-            println!("🌐 Tauri app initialized");
+            info!("Tauri app initialized");
             Ok(())
         })
         .on_window_event(|event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event.event() {
-                println!("🛑 Window close requested, shutting down...");
+                info!("Window close requested, shutting down...");
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
+        .expect("Failed to build Tauri application - this is a critical error")
         .run(|_app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                println!("👋 Trade Copier stopped");
+                info!("Trade Copier stopped");
             }
         });
 

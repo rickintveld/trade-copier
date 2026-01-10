@@ -34,6 +34,11 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
       - name: Install dependencies (macOS only)
         if: matrix.platform == 'macos-latest'
         run: |
@@ -45,7 +50,6 @@ jobs:
 
       - name: Build & publish Tauri app
         uses: tauri-apps/tauri-action@v0
-        id: tauri-build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -56,50 +60,12 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Release ${{ github.ref_name }}"
+          releaseName: "Trade Copier ${{ github.ref_name }}"
           releaseBody: |
-            🚀 Release ${{ github.ref_name }}
+            🚀 Trade Copier ${{ github.ref_name }}
 
             Downloads:
-            - Windows (.exe / .msi)
-            - macOS (.dmg)
-          releaseDraft: true
+            - Windows: .exe installer or .msi
+            - macOS: .dmg
+          releaseDraft: false
           prerelease: false
-
-      - name: Rename artifacts
-        shell: bash
-        run: |
-          cd src-tauri/target/release/bundle
-          
-          if [ "${{ matrix.os-name }}" == "windows" ]; then
-            # Rename .exe and .msi files
-            for file in nsis/*.exe; do
-              if [ -f "$file" ]; then
-                mv "$file" "nsis/trade-copier.exe"
-              fi
-            done
-            
-            for file in msi/*.msi; do
-              if [ -f "$file" ]; then
-                mv "$file" "msi/trade-copier.msi"
-              fi
-            done
-          elif [ "${{ matrix.os-name }}" == "macos" ]; then
-            # Rename .dmg file
-            for file in dmg/*.dmg; do
-              if [ -f "$file" ]; then
-                mv "$file" "dmg/trade-copier.dmg"
-              fi
-            done
-          fi
-
-      - name: Upload renamed artifacts to release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            src-tauri/target/release/bundle/nsis/trade-copier.exe
-            src-tauri/target/release/bundle/msi/trade-copier.msi
-            src-tauri/target/release/bundle/dmg/trade-copier.dmg
-          draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
