@@ -1,5 +1,5 @@
 # Rust
-./dist
+/dist
 /src-tauri/target
 /target/
 Cargo.lock
