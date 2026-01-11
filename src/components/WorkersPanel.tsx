@@ -105,7 +105,9 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
         onWorkerCreated();
       }
     } catch (error) {
-      console.error('Failed to create worker:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to create worker:', error);
+      }
       const errorMessage = error instanceof Error ? error.message : 'Failed to create worker';
       setSubmitError(errorMessage);
     } finally {

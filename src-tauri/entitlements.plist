@@ -2,20 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Network Client Access -->
+    <!-- Network Client Access - Allow outgoing network connections -->
     <key>com.apple.security.network.client</key>
     <true/>
     
     <!-- Network Server - Required for TCP listener (router and workers) -->
     <key>com.apple.security.network.server</key>
-    <true/>
-    
-    <!-- Allow incoming network connections -->
-    <key>com.apple.security.network.server</key>
-    <true/>
-    
-    <!-- Allow outgoing network connections -->
-    <key>com.apple.security.network.client</key>
     <true/>
     
     <!-- File access for database and configuration -->
@@ -25,3 +17,5 @@
     <!-- Required for Wine/MT5 process management on macOS -->
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
+</dict>
+</plist>
