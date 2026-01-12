@@ -42,6 +42,7 @@ Master MT5 (Signal Provider EA)
 - **Connection Resilience**: Automatic reconnection handling
 - **MT5 Instance Management**: Automated Wine-based MT5 installation on macOS
 - **Automatic Dependency Installation**: Automatically installs Wine and Homebrew on macOS when needed
+- **Automatic EA Synchronization**: Expert Advisors are automatically copied to master MT5 on startup
 - **RESTful API**: Full HTTP API for configuration and monitoring
 - **Audit Logging**: Complete trade history and error tracking
 - **System Metrics**: Real-time status, uptime, and worker health monitoring
@@ -74,6 +75,7 @@ The service will start:
 - [Workers](./docs/workers.md) - Worker lifecycle and trade forwarding
 - [API](./docs/api.md) - HTTP API endpoints and usage
 - [Automatic Dependency Installation](./docs/automatic-dependency-installation.md) - Wine and Homebrew auto-installation
+- [Expert Advisor Synchronization](./docs/EA_SYNC.md) - Automatic EA updates to master MT5 on startup
 - [MQL5 Expert Advisors](./docs/mql5-expert-advisors.md) - MT5 plugins documentation
   - [Signal Provider Setup](./docs/mql5-signal-provider.md) - Master EA configuration
   - [Signal Receiver Setup](./docs/mql5-signal-receiver.md) - Slave EA configuration and README

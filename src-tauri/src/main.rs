@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod database;
+mod ea_sync;
 mod installer;
 mod router;
 mod tauri_commands;
@@ -32,6 +33,14 @@ async fn main() -> Result<()> {
         .init();
 
     info!("Trade Copier starting...");
+
+    // Sync Expert Advisors to master MT5 installation on startup
+    // This ensures the latest EA version is always available in the master account
+    if let Err(e) = ea_sync::sync_expert_advisors_to_master() {
+        // Log warning but don't fail startup - user may not have master MT5 installed yet
+        warn!("Failed to sync Expert Advisors to master MT5: {}", e);
+        warn!("You can continue, but make sure to install the EAs manually or restart after installing MT5");
+    }
 
     // Initialize database - use Tauri app data directory
     let app_data_dir = dirs::data_local_dir()
