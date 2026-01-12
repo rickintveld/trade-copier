@@ -31,12 +31,12 @@ const TypeBadge: React.FC<{ type: Trade['type'] }> = ({ type }) => {
   return (
     <div
       className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${
-        type === 'BUY'
+        type === 'buy'
           ? 'bg-buy/10 text-buy'
           : 'bg-sell/10 text-sell'
       }`}
     >
-      {type === 'BUY' ? (
+      {type === 'buy' ? (
         <ArrowUpRight className="w-3 h-3" />
       ) : (
         <ArrowDownRight className="w-3 h-3" />

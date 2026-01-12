@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Position } from '@/types/trading';
 import { formatPrice, formatLots, formatRelativeTime } from '@/lib/formatters';
-import { ArrowUpRight, ArrowDownRight, Filter, Download } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Filter, Download, Crosshair, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { save } from '@tauri-apps/api/dialog';
@@ -32,7 +32,17 @@ const PositionTable: React.FC<PositionTableProps> = ({ positions, workers }) => 
   const [workerFilter, setWorkerFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'buy' | 'sell'>('all');
 
-  const uniqueSymbols = [...new Set(positions.map(p => p.symbol))];
+  const trade_type_styles = {
+    buy: 'bg-buy/10 text-buy',
+    sell: 'bg-sell/10 text-sell',
+    null: 'bg-sell/10 text-sell',
+  };
+
+  const arrows = {
+    buy: <ArrowUpRight className="w-3 h-3" />,
+    sell: <ArrowDownRight className="w-3 h-3" />,
+    null: <X className="w-3 h-3" />
+  }
 
   const filteredPositions = positions.filter(position => {
     if (symbolFilter && !position.symbol.toLowerCase().includes(symbolFilter.toLowerCase())) {
@@ -161,18 +171,10 @@ const PositionTable: React.FC<PositionTableProps> = ({ positions, workers }) => 
                 <TableCell className="font-semibold">{position.symbol}</TableCell>
                 <TableCell>
                   <div
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${
-                      position.type === 'buy'
-                        ? 'bg-buy/10 text-buy'
-                        : 'bg-sell/10 text-sell'
-                    }`}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${trade_type_styles[position.type]}`}
                   >
-                    {position.type === 'buy' ? (
-                      <ArrowUpRight className="w-3 h-3" />
-                    ) : (
-                      <ArrowDownRight className="w-3 h-3" />
-                    )}
-                    {position.type !== null ? position.type.toUpperCase() : 'CLOSE'}
+                    {arrows[position.type]}
+                    {position.type !== null ? position.type.toUpperCase() : position.cmd.toUpperCase()}
                   </div>
                 </TableCell>
                 <TableCell className={`font-mono text-sm text-right text-primary ${(position.cmd == 'open') ? 'text-success' : (position.cmd == 'modify') ?  'text-warning' : 'text-destructive'}`}>
