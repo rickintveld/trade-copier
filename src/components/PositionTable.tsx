@@ -24,7 +24,7 @@ import {
 
 interface PositionTableProps {
   positions: Position[];
-  workers: { id: string; name: string }[];
+  workers: { id: number; name: string }[];
 }
 
 const PositionTable: React.FC<PositionTableProps> = ({ positions, workers }) => {
@@ -109,7 +109,7 @@ const PositionTable: React.FC<PositionTableProps> = ({ positions, workers }) => 
           <SelectContent>
             <SelectItem value="all">All Workers</SelectItem>
             {workers.map(w => (
-              <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+              <SelectItem key={w.id} value={`worker-${w.id.toString().padStart(3, '0')}`}>{w.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
