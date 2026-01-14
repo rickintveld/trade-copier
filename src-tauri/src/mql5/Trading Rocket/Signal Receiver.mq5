@@ -21,6 +21,7 @@ int socketHandle = INVALID_SOCKET;
 CTrade trade;
 bool g_connection_lost = false;
 datetime g_last_recv_time = 0;
+string g_receive_buffer = "";  // Buffer for incomplete messages
 
 // Position tracking: maps trade_id to position ticket
 ulong g_trade_ids[];
@@ -125,8 +126,6 @@ void CheckIncomingTrades()
    if(len == 0)
       return;
    
-   Print("[RECEIVER] Data available: ", len, " bytes");
-   
    // Receive data
    uchar buffer[];
    ArrayResize(buffer, len);
@@ -136,37 +135,32 @@ void CheckIncomingTrades()
    if(received > 0)
    {
       g_last_recv_time = TimeLocal();
-      
-      Print("[RECEIVER] Received ", received, " bytes from worker");
 
-      // Convert to string
+      // Convert to string and append to buffer
       string data = CharArrayToString(buffer, 0, received, CP_UTF8);
-      
-      Print("[RECEIVER] Raw data: ", data);
+      g_receive_buffer += data;
 
-      // Parse and execute trade (may contain multiple newline-delimited messages)
-      string messages[];
-      int count = StringSplit(data, '\n', messages);
-      
-      Print("[RECEIVER] Split into ", count, " messages");
-
-      for(int i = 0; i < count; i++)
+      // Process complete messages (newline-delimited)
+      int newline_pos;
+      while((newline_pos = StringFind(g_receive_buffer, "\n")) >= 0)
       {
-         if(StringLen(messages[i]) > 0)
+         // Extract complete message
+         string message = StringSubstr(g_receive_buffer, 0, newline_pos);
+         
+         // Remove processed message from buffer (including newline)
+         g_receive_buffer = StringSubstr(g_receive_buffer, newline_pos + 1);
+         
+         // Process message if not empty
+         if(StringLen(message) > 0)
          {
-            Print("[RECEIVER] Processing message[", i, "]: ", messages[i]);
-            
             // Check for heartbeat PING message
-            if(messages[i] == "PING")
+            if(message == "PING")
             {
-               Print("[RECEIVER] Heartbeat received");
-               // Heartbeat from worker - connection is alive
-               // No action needed, just ignore
+               // Heartbeat from worker - connection is alive, no action needed
             }
             else
             {
-               Print("[RECEIVER] Parsing trade signal...");
-               ParseAndExecuteTrade(messages[i]);
+               ParseAndExecuteTrade(message);
             }
          }
       }
@@ -191,8 +185,6 @@ void CheckIncomingTrades()
 //+------------------------------------------------------------------+
 bool ParseAndExecuteTrade(string json_data)
 {
-   Print("[RECEIVER] ========== PARSING TRADE SIGNAL ==========");
-   Print("[RECEIVER] JSON: ", json_data);
    
    ulong trade_id = 0;
    string symbol = "";
@@ -211,43 +203,35 @@ bool ParseAndExecuteTrade(string json_data)
       SendAcknowledgment(false, "Failed to parse trade_id");
       return false;
    }
-   Print("[RECEIVER] Trade ID: ", trade_id);
 
    if(!ExtractJSONString(json_data, "symbol", symbol)) 
    {
       Print("[RECEIVER] ERROR: Failed to parse symbol");
       SendAcknowledgment(false, "Failed to parse symbol");
-
       return false;
    }
-   Print("[RECEIVER] Symbol: ", symbol);
 
    if(!ExtractJSONDouble(json_data, "lots", lots)) 
    {
       Print("[RECEIVER] ERROR: Failed to parse lots");
       SendAcknowledgment(false, "Failed to parse lots");
-
       return false;
    }
-   Print("[RECEIVER] Lots: ", lots);
 
    // Optional fields
-   ExtractJSONString(json_data, "type", trade_type);  // Optional - not needed for close/modify
-   ExtractJSONDouble(json_data, "price", price);  // Required for pending orders
+   ExtractJSONString(json_data, "type", trade_type);
+   ExtractJSONDouble(json_data, "price", price);
    ExtractJSONDouble(json_data, "sl", sl);
    ExtractJSONDouble(json_data, "tp", tp);
    ExtractJSONString(json_data, "cmd", cmd);
    ExtractJSONString(json_data, "order_type", order_type);
-   
-   Print("[RECEIVER] Type: ", trade_type, ", Price: ", price, ", SL: ", sl, ", TP: ", tp);
-   Print("[RECEIVER] Command: ", cmd, ", Order Type: ", order_type);
    
    // Handle different commands
    bool success = false;
 
    if(cmd == "open")
    {
-      Print("[RECEIVER] Executing OPEN command");
+      Print("[RECEIVER] Opening ", trade_type, " ", lots, " lots ", symbol, " (ID: ", trade_id, ")");
       
       // Validate trade_type for open command
       if(trade_type == "")
@@ -262,31 +246,21 @@ bool ParseAndExecuteTrade(string json_data)
       // Check if this is a pending order or market order
       if(order_type == "market")
       {
-         Print("[RECEIVER] Executing MARKET order");
-         
          // Execute market order
          if(trade_type == "buy")
          {
-            Print("[RECEIVER] Executing BUY: ", lots, " lots of ", symbol, " | SL: ", sl, " | TP: ", tp);
             success = trade.Buy(lots, symbol, 0, sl, tp, "CopiedTrade");
-            Print("[RECEIVER] BUY result: ", (success ? "SUCCESS" : "FAILED"));
             if(!success)
             {
-               Print("[RECEIVER] BUY error code: ", GetLastError());
-               Print("[RECEIVER] Trade result code: ", trade.ResultRetcode());
-               Print("[RECEIVER] Trade result comment: ", trade.ResultRetcodeDescription());
+               Print("[RECEIVER] ERROR: BUY failed - ", trade.ResultRetcodeDescription());
             }
          }
          else if(trade_type == "sell")
          {
-            Print("[RECEIVER] Executing SELL: ", lots, " lots of ", symbol, " | SL: ", sl, " | TP: ", tp);
             success = trade.Sell(lots, symbol, 0, sl, tp, "CopiedTrade");
-            Print("[RECEIVER] SELL result: ", (success ? "SUCCESS" : "FAILED"));
             if(!success)
             {
-               Print("[RECEIVER] SELL error code: ", GetLastError());
-               Print("[RECEIVER] Trade result code: ", trade.ResultRetcode());
-               Print("[RECEIVER] Trade result comment: ", trade.ResultRetcodeDescription());
+               Print("[RECEIVER] ERROR: SELL failed - ", trade.ResultRetcodeDescription());
             }
          }
          else
@@ -296,50 +270,43 @@ bool ParseAndExecuteTrade(string json_data)
             return false;
          }
          
-         // Handle ticket result for market orders
-         if(success)
-         {
-            Print("[RECEIVER] Getting position ticket...");
-            // Get the position ticket from the result
-            ticket = trade.ResultDeal();
-            Print("[RECEIVER] ResultDeal: ", ticket);
-            
-            if(ticket > 0 && HistoryDealSelect(ticket))
+        // Handle ticket result for market orders
+        if(success)
+        {
+            // Select position directly by symbol
+            if(PositionSelect(symbol))
             {
-               ticket = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
-               Print("[RECEIVER] Position ID from deal: ", ticket);
+                ticket = PositionGetInteger(POSITION_TICKET);
+                
+                if(ticket > 0)
+                {
+                    Print("[RECEIVER] Position opened: ticket=", ticket);
+                    AddPositionMapping(trade_id, ticket);
+                    SendAcknowledgment(true, "Market order opened successfully");
+                }
+                else
+                {
+                    Print("[RECEIVER] ERROR: Invalid position ticket");
+                    SendAcknowledgment(false, "Got invalid position ticket");
+                }
             }
             else
             {
-               // Fallback: try ResultOrder
-               ticket = trade.ResultOrder();
-               Print("[RECEIVER] ResultOrder fallback: ", ticket);
+                Print("[RECEIVER] WARNING: Position not found after opening (timing issue, will auto-discover on modify)");
+                SendAcknowledgment(true, "Position opened but not immediately available");
             }
-            
-            if(ticket > 0)
-            {
-               Print("[RECEIVER] Position opened successfully with ticket: ", ticket);
-               AddPositionMapping(trade_id, ticket);
-               SendAcknowledgment(true, "Market order opened successfully");
-            }
-            else
-            {
-               Print("[RECEIVER] ERROR: Failed to get position ticket");
-               SendAcknowledgment(false, "Failed to get position ticket");
-            }
-         }
+        }
          else
          {
-            Print("[RECEIVER] ERROR: Failed to open market order");
             SendAcknowledgment(false, "Failed to open market order");
          }
       }
       else
       {
          // Place pending order
-         Print("[RECEIVER] Executing PENDING order");
          if(price <= 0)
          {
+            Print("[RECEIVER] ERROR: Price required for pending orders");
             SendAcknowledgment(false, "Price required for pending orders");
             return false;
          }
@@ -449,32 +416,55 @@ bool ParseAndExecuteTrade(string json_data)
    }
    else if(cmd == "modify")
    {
+      Print("[RECEIVER] Modifying position: SL=", sl, " TP=", tp, " (ID: ", trade_id, ")");
+      
       int idx = FindTradeIdIndex(trade_id);
 
       if(idx < 0) 
       {
-         SendAcknowledgment(false, "Trade ID not found");
-
-         return false;
+         // Try to auto-discover position by symbol
+         if(PositionSelect(symbol))
+         {
+            ulong ticket = PositionGetInteger(POSITION_TICKET);
+            Print("[RECEIVER] Auto-discovered position: ticket=", ticket);
+            
+            AddPositionMapping(trade_id, ticket);
+            idx = FindTradeIdIndex(trade_id);
+            
+            if(idx < 0)
+            {
+               Print("[RECEIVER] ERROR: Failed to add position to tracking");
+               SendAcknowledgment(false, "Failed to add position to tracking");
+               return false;
+            }
+         }
+         else
+         {
+            Print("[RECEIVER] ERROR: Position not found for ", symbol);
+            SendAcknowledgment(false, "Position not found");
+            return false;
+         }
       }
 
       ulong ticket = g_position_tickets[idx];
 
       if(!PositionSelectByTicket(ticket))
       {
+         Print("[RECEIVER] ERROR: Position not found with ticket ", ticket);
          RemovePositionMapping(trade_id);
          SendAcknowledgment(false, "Position not found");
-
          return false;
       }
 
       success = trade.PositionModify(ticket, sl, tp);
       if(success)
       {
+         Print("[RECEIVER] Position modified: ticket=", ticket);
          SendAcknowledgment(true, "Trade modified successfully");
       }
       else
       {
+         Print("[RECEIVER] ERROR: Modify failed - ", trade.ResultRetcodeDescription());
          SendAcknowledgment(false, "Failed to modify trade");
       }
 
@@ -643,7 +633,6 @@ void AddPositionMapping(ulong trade_id, ulong ticket)
    if(idx >= 0)
    {
       g_position_tickets[idx] = ticket;
-
       return;
    }
 
@@ -716,6 +705,7 @@ void DisconnectFromWorker()
    {
       SocketClose(socketHandle);
       socketHandle = INVALID_SOCKET;
+      g_receive_buffer = "";  // Clear receive buffer on disconnect
       Print("[RECEIVER] Disconnected from worker");
    }
 }
