@@ -187,7 +187,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
         <Card className="glass-card border-border/50">
           <CardHeader>
             <CardTitle className="text-lg">Trade Type Distribution</CardTitle>
-            <CardDescription>Buy vs Sell positions</CardDescription>
+            <CardDescription>Buy vs Sell signals</CardDescription>
           </CardHeader>
           <CardContent>
             {tradeTypeData.length > 0 ? (
@@ -206,7 +206,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
               </ChartContainer>
             ) : (
               <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-                No position data available
+                No signal data available
               </div>
             )}
           </CardContent>
@@ -237,7 +237,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
               </ChartContainer>
             ) : (
               <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-                No position data available
+                No signal data available
               </div>
             )}
           </CardContent>
