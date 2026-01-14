@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useTradingData } from '@/hooks/useTradingData';
+import { useDependencyStatus } from '@/hooks/useDependencyStatus';
 import DashboardHeader from '@/components/DashboardHeader';
 import WorkersPanel from '@/components/WorkersPanel';
 import MetricsPanel from '@/components/MetricsPanel';
@@ -14,6 +15,7 @@ import { toast } from 'sonner';
 const Dashboard: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { workers, positions, errors, metrics, isConnected, lastUpdate } = useTradingData();
+  const { status: dependencyStatus } = useDependencyStatus();
   const previousErrorsRef = React.useRef<typeof errors>([]);
 
   // Show toast for critical errors
@@ -127,6 +129,7 @@ const Dashboard: React.FC = () => {
                 positions={positions}
                 errors={errors}
                 metrics={metrics}
+                dependencyStatus={dependencyStatus}
               />
             </TabsContent>
           </Tabs>

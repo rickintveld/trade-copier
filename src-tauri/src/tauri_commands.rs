@@ -1,9 +1,10 @@
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, State};
 use tokio::sync::{mpsc, Mutex};
 
 use crate::database::Database;
+use crate::dependency_manager;
 use crate::installer::InstanceManager;
 use crate::worker_manager::WorkerCommand;
 
@@ -245,4 +246,50 @@ pub async fn stop_instance(
             "message": format!("Worker '{}' and MT5 instance stopped successfully", worker.name)
         }),
     })
+}
+
+// Get dependency status
+#[tauri::command]
+pub async fn get_dependency_status(state: State<'_, AppState>) -> Result<ApiResponse<serde_json::Value>, String> {
+    match dependency_manager::get_dependency_status(state.db.clone()).await {
+        Ok(Some(status)) => Ok(ApiResponse {
+            success: true,
+            data: serde_json::to_value(status).map_err(|e| e.to_string())?,
+        }),
+        Ok(None) => Ok(ApiResponse {
+            success: true,
+            data: serde_json::json!(null),
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+// Check dependencies
+#[tauri::command]
+pub async fn check_dependencies(
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+) -> Result<ApiResponse<serde_json::Value>, String> {
+    match dependency_manager::check_dependencies(state.db.clone(), Some(&app_handle)).await {
+        Ok(status) => Ok(ApiResponse {
+            success: true,
+            data: serde_json::to_value(status).map_err(|e| e.to_string())?,
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+// Install dependencies
+#[tauri::command]
+pub async fn install_dependencies(
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+) -> Result<ApiResponse<serde_json::Value>, String> {
+    match dependency_manager::install_dependencies(state.db.clone(), &app_handle).await {
+        Ok(status) => Ok(ApiResponse {
+            success: true,
+            data: serde_json::to_value(status).map_err(|e| e.to_string())?,
+        }),
+        Err(e) => Err(e.to_string()),
+    }
 }

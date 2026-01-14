@@ -4,15 +4,35 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell } from 'recharts';
 import { formatDistanceToNow } from 'date-fns';
+import { CheckCircle2, XCircle, Clock, AlertTriangle } from 'lucide-react';
+import { DependencyStatus } from '@/hooks/useDependencyStatus';
 
 interface PerformanceChartProps {
   workers: Worker[];
   positions: Position[];
   errors: ErrorLog[];
   metrics: SystemMetrics;
+  dependencyStatus: DependencyStatus | null;
 }
 
-const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions, errors, metrics }) => {
+const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions, errors, metrics, dependencyStatus }) => {
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'installed':
+        return <CheckCircle2 className="w-4 h-4 text-green-500" />;
+      case 'installing':
+        return <Clock className="w-4 h-4 text-yellow-500 animate-pulse" />;
+      case 'error':
+        return <XCircle className="w-4 h-4 text-red-500" />;
+      case 'pending':
+      default:
+        return <AlertTriangle className="w-4 h-4 text-orange-500" />;
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  };
   // Worker status distribution
   const workerStatusData = useMemo(() => {
     const statusCounts = workers.reduce((acc, worker) => {
@@ -155,6 +175,34 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
                 <p className="text-2xl font-bold">{metrics.uptime}s</p>
               </div>
             </div>
+            
+            {dependencyStatus && (
+              <>
+                <div className="border-t border-border/50 pt-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(dependencyStatus.package_manager_status)}
+                        <span className="text-sm text-muted-foreground">{dependencyStatus.package_manager_name}</span>
+                      </div>
+                      <span className="text-sm font-medium">{getStatusText(dependencyStatus.package_manager_status)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(dependencyStatus.wine_status)}
+                        <span className="text-sm text-muted-foreground">Wine</span>
+                      </div>
+                      <span className="text-sm font-medium">{getStatusText(dependencyStatus.wine_status)}</span>
+                    </div>
+                    {dependencyStatus.error_message && (
+                      <div className="mt-2 p-2 bg-destructive/10 border border-destructive/20 rounded text-xs text-destructive">
+                        {dependencyStatus.error_message}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

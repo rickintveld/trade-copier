@@ -39,6 +39,35 @@ impl ErrorSeverity {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub enum DependencyStatus {
+    Pending,
+    Installing,
+    Installed,
+    Error,
+}
+
+impl DependencyStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DependencyStatus::Pending => "pending",
+            DependencyStatus::Installing => "installing",
+            DependencyStatus::Installed => "installed",
+            DependencyStatus::Error => "error",
+        }
+    }
+    
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "pending" => DependencyStatus::Pending,
+            "installing" => DependencyStatus::Installing,
+            "installed" => DependencyStatus::Installed,
+            "error" => DependencyStatus::Error,
+            _ => DependencyStatus::Pending,
+        }
+    }
+}
+
 pub struct Database {
     conn: Connection,
 }
@@ -160,6 +189,22 @@ impl Database {
                 "ALTER TABLE system_metrics ADD COLUMN avg_latency_ms REAL NOT NULL DEFAULT 0.0",
                 [],
             );
+            
+            // Create system_dependencies table for tracking dependency installation
+            // Single row table - always id=1
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS system_dependencies (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    os_name TEXT NOT NULL,
+                    os_version TEXT,
+                    package_manager_name TEXT NOT NULL,
+                    package_manager_status TEXT NOT NULL,
+                    wine_status TEXT NOT NULL,
+                    last_checked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    error_message TEXT
+                )",
+                [],
+            )?;
             
             Ok(())
         }).await?;
@@ -669,6 +714,73 @@ impl Database {
         }
     }
     
+    /// Upsert system dependencies status
+    pub async fn upsert_system_dependencies(
+        &self,
+        os_name: &str,
+        os_version: Option<&str>,
+        package_manager_name: &str,
+        package_manager_status: DependencyStatus,
+        wine_status: DependencyStatus,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        let os_name = os_name.to_string();
+        let os_version = os_version.map(|s| s.to_string());
+        let package_manager_name = package_manager_name.to_string();
+        let pm_status_str = package_manager_status.as_str().to_string();
+        let wine_status_str = wine_status.as_str().to_string();
+        let error_message = error_message.map(|s| s.to_string());
+        
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT INTO system_dependencies 
+                 (id, os_name, os_version, package_manager_name, package_manager_status, wine_status, last_checked_at, error_message)
+                 VALUES (1, ?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP, ?6)
+                 ON CONFLICT(id) DO UPDATE SET
+                    os_name = excluded.os_name,
+                    os_version = excluded.os_version,
+                    package_manager_name = excluded.package_manager_name,
+                    package_manager_status = excluded.package_manager_status,
+                    wine_status = excluded.wine_status,
+                    last_checked_at = CURRENT_TIMESTAMP,
+                    error_message = excluded.error_message",
+                rusqlite::params![&os_name, &os_version, &package_manager_name, &pm_status_str, &wine_status_str, &error_message],
+            )?;
+            Ok(())
+        }).await?;
+        
+        Ok(())
+    }
+    
+    /// Get system dependencies status
+    pub async fn get_system_dependencies(&self) -> Result<Option<SystemDependenciesRecord>> {
+        let result = self.conn.call(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, os_name, os_version, package_manager_name, package_manager_status, wine_status, last_checked_at, error_message
+                 FROM system_dependencies
+                 WHERE id = 1"
+            )?;
+            
+            let mut rows = stmt.query([])?;
+            if let Some(row) = rows.next()? {
+                Ok(Some(SystemDependenciesRecord {
+                    id: row.get(0)?,
+                    os_name: row.get(1)?,
+                    os_version: row.get(2)?,
+                    package_manager_name: row.get(3)?,
+                    package_manager_status: row.get(4)?,
+                    wine_status: row.get(5)?,
+                    last_checked_at: row.get(6)?,
+                    error_message: row.get(7)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        }).await?;
+        
+        Ok(result)
+    }
+    
 }
 
 // API response types
@@ -749,4 +861,16 @@ pub struct WorkerUpsertConfig {
     pub error: Option<String>,
     pub wine_prefix: Option<String>,
     pub symbol_prefix: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SystemDependenciesRecord {
+    pub id: i64,
+    pub os_name: String,
+    pub os_version: Option<String>,
+    pub package_manager_name: String,
+    pub package_manager_status: String,
+    pub wine_status: String,
+    pub last_checked_at: String,
+    pub error_message: Option<String>,
 }

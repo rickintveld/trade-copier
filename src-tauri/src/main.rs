@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod database;
+mod dependency_manager;
 mod ea_sync;
 mod installer;
 mod router;
@@ -138,9 +139,22 @@ async fn main() -> Result<()> {
             tauri_commands::delete_instance,
             tauri_commands::start_instance,
             tauri_commands::stop_instance,
+            tauri_commands::get_dependency_status,
+            tauri_commands::check_dependencies,
+            tauri_commands::install_dependencies,
         ])
-        .setup(|_app| {
+        .setup(move |app| {
             info!("Tauri app initialized");
+            
+            // Check dependencies on startup
+            let db_clone = db.clone();
+            let app_handle = app.handle();
+            tokio::spawn(async move {
+                if let Err(e) = dependency_manager::check_dependencies(db_clone, Some(&app_handle)).await {
+                    error!("Failed to check dependencies on startup: {}", e);
+                }
+            });
+            
             Ok(())
         })
         .on_window_event(|event| {

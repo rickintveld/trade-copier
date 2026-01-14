@@ -5,6 +5,22 @@ use std::io::Write;
 /// Check if Homebrew is installed on macOS
 #[cfg(target_os = "macos")]
 pub fn is_homebrew_installed() -> bool {
+    // Check common Homebrew installation paths
+    // This is more reliable than 'which brew' in production builds
+    // where PATH may not include Homebrew directories
+    let brew_paths = vec![
+        "/opt/homebrew/bin/brew",  // Apple Silicon
+        "/usr/local/bin/brew",      // Intel Mac
+    ];
+    
+    // First check if brew exists in standard locations
+    for path in &brew_paths {
+        if std::path::Path::new(path).exists() {
+            return true;
+        }
+    }
+    
+    // Fallback to 'which' command (works in dev mode)
     Command::new("which")
         .arg("brew")
         .output()
