@@ -134,6 +134,7 @@ async fn main() -> Result<()> {
             tauri_commands::get_trades,
             tauri_commands::get_errors,
             tauri_commands::get_system_metrics,
+            tauri_commands::get_account_balance_history,
             tauri_commands::get_instances,
             tauri_commands::create_instance,
             tauri_commands::delete_instance,

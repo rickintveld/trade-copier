@@ -86,6 +86,22 @@ pub async fn get_system_metrics(state: State<'_, AppState>) -> Result<ApiRespons
     }
 }
 
+// Get account balance history
+#[tauri::command]
+pub async fn get_account_balance_history(
+    state: State<'_, AppState>,
+    worker_id: Option<i64>,
+    limit: Option<i64>,
+) -> Result<ApiResponse<serde_json::Value>, String> {
+    match state.db.get_account_balance_history(worker_id, limit).await {
+        Ok(balances) => Ok(ApiResponse {
+            success: true,
+            data: serde_json::to_value(balances).map_err(|e| e.to_string())?,
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 // Get all instances
 #[tauri::command]
 pub async fn get_instances(state: State<'_, AppState>) -> Result<ApiResponse<serde_json::Value>, String> {

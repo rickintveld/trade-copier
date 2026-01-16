@@ -1,5 +1,5 @@
-import { Worker, ErrorLog, SystemMetrics, Position } from '@/types/trading';
-import { tradeCopierApi, ApiWorker, ApiErrorLog, ApiTrade } from '@/lib/api';
+import { Worker, ErrorLog, SystemMetrics, Position, AccountBalance } from '@/types/trading';
+import { tradeCopierApi, ApiWorker, ApiErrorLog, ApiTrade, ApiAccountBalance } from '@/lib/api';
 import { useState, useEffect, useCallback } from 'react';
 
 // Helper to parse UTC timestamp from database
@@ -61,11 +61,28 @@ function transformTradeToPosition(apiTrade: ApiTrade): Position | null {
   };
 }
 
+// Transform API account balance to dashboard account balance
+function transformAccountBalance(apiBalance: ApiAccountBalance): AccountBalance {
+  return {
+    id: apiBalance.id,
+    workerId: apiBalance.worker_id,
+    workerName: apiBalance.worker_name,
+    workerAddress: apiBalance.worker_address,
+    balance: apiBalance.balance,
+    equity: apiBalance.equity,
+    margin: apiBalance.margin,
+    eventType: apiBalance.event_type,
+    tradeId: apiBalance.trade_id,
+    createdAt: parseUTCTimestamp(apiBalance.created_at),
+  };
+}
+
 interface UseTradingDataReturn {
   workers: Worker[];
   positions: Position[];
   errors: ErrorLog[];
   metrics: SystemMetrics;
+  accountBalances: AccountBalance[];
   isConnected: boolean;
   lastUpdate: Date;
 }
@@ -74,6 +91,7 @@ export const useTradingData = (): UseTradingDataReturn => {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [errors, setErrors] = useState<ErrorLog[]>([]);
+  const [accountBalances, setAccountBalances] = useState<AccountBalance[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics>({
     routerStatus: 'offline',
     listeningPort: 5000,
@@ -104,6 +122,17 @@ export const useTradingData = (): UseTradingDataReturn => {
         .map(transformTradeToPosition)
         .filter((pos): pos is Position => pos !== null);
       setPositions(transformedPositions);
+      
+      // Fetch account balance history
+      try {
+        const apiBalances = await tradeCopierApi.getAccountBalanceHistory();
+        const transformedBalances = apiBalances.map(transformAccountBalance);
+        setAccountBalances(transformedBalances);
+      } catch (balanceError) {
+        if (import.meta.env.DEV) {
+          console.warn('Failed to fetch account balance history:', balanceError);
+        }
+      }
       
       // Fetch system metrics from API
       try {
@@ -158,6 +187,7 @@ export const useTradingData = (): UseTradingDataReturn => {
     positions,
     errors,
     metrics,
+    accountBalances,
     isConnected,
     lastUpdate,
   };

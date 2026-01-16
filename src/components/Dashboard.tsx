@@ -7,14 +7,15 @@ import MetricsPanel from '@/components/MetricsPanel';
 import PositionTable from '@/components/PositionTable';
 import ErrorLogPanel from '@/components/ErrorLogPanel';
 import PerformanceChart from '@/components/PerformanceChart';
+import ProfitChart from '@/components/ProfitChart';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { TableProperties, AlertCircle, BarChart3 } from 'lucide-react';
+import { TableProperties, AlertCircle, BarChart3, TrendingUp } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 
 const Dashboard: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { workers, positions, errors, metrics, isConnected, lastUpdate } = useTradingData();
+  const { workers, positions, errors, metrics, accountBalances, isConnected, lastUpdate } = useTradingData();
   const { status: dependencyStatus } = useDependencyStatus();
   const previousErrorsRef = React.useRef<typeof errors>([]);
 
@@ -98,6 +99,13 @@ const Dashboard: React.FC = () => {
                   Performance
                 </TabsTrigger>
                 <TabsTrigger 
+                  value="profits"
+                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4"
+                >
+                  <TrendingUp className="w-4 h-4" />
+                  Profits
+                </TabsTrigger>
+                <TabsTrigger 
                   value="errors"
                   className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4 relative"
                 >
@@ -131,6 +139,10 @@ const Dashboard: React.FC = () => {
                 metrics={metrics}
                 dependencyStatus={dependencyStatus}
               />
+            </TabsContent>
+
+            <TabsContent value="profits" className="flex-1 m-0 overflow-hidden">
+              <ProfitChart balances={accountBalances} />
             </TabsContent>
           </Tabs>
         </main>

@@ -37,6 +37,7 @@ int FindTradeIdIndex(ulong trade_id);
 void AddPositionMapping(ulong trade_id, ulong ticket);
 void RemovePositionMapping(ulong trade_id);
 void SendAcknowledgment(bool success, string message);
+void SendAccountInfo();
 
 // Order tracking helper functions
 int FindOrderTradeIdIndex(ulong trade_id);
@@ -371,6 +372,8 @@ bool ParseAndExecuteTrade(string json_data)
       {
          RemovePositionMapping(trade_id);
          SendAcknowledgment(true, "Trade closed successfully");
+         // Send updated account info after closing trade
+         SendAccountInfo();
       }
       else
       {
@@ -406,6 +409,8 @@ bool ParseAndExecuteTrade(string json_data)
       if(success)
       {
          SendAcknowledgment(true, "Partial close successful");
+         // Send updated account info after partial close
+         SendAccountInfo();
       }
       else
       {
@@ -695,6 +700,9 @@ bool ConnectToWorker()
    Print("[RECEIVER] Connected to worker successfully (TCP)");
    g_connection_lost = false;
    g_last_recv_time = TimeLocal();
+   
+   // Send initial account info
+   SendAccountInfo();
 
    return true;
 }
@@ -809,4 +817,45 @@ void RemoveOrderMapping(ulong trade_id)
    
    ArrayResize(g_order_trade_ids, g_order_tracking_count);
    ArrayResize(g_order_tickets, g_order_tracking_count);
+}
+
+//+------------------------------------------------------------------+
+//| Send account information to Rust worker                          |
+//+------------------------------------------------------------------+
+void SendAccountInfo()
+{
+   if(!EnsureConnection())
+      return;
+   
+   // Get account information
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   double margin = AccountInfoDouble(ACCOUNT_MARGIN);
+   
+   // Format as JSON
+   string json = StringFormat("{\"balance\":%.2f,\"equity\":%.2f,\"margin\":%.2f}\n",
+                              balance, equity, margin);
+   
+   // Convert to bytes
+   uchar data[];
+   StringToCharArray(json, data, 0, StringLen(json), CP_UTF8);
+   
+   // Send to worker
+   int sent = SocketSend(socketHandle, data, ArraySize(data));
+   
+   if(sent > 0)
+   {
+      Print("[RECEIVER] Account info sent: balance=", balance, ", equity=", equity);
+   }
+   else
+   {
+      int error = GetLastError();
+      Print("[RECEIVER] ERROR: Failed to send account info, error: ", error);
+      if(error == 5273 || error == 5274 || error == 4014) // Network errors
+      {
+         Print("[RECEIVER] Connection lost. Will attempt reconnect.");
+         g_connection_lost = true;
+         g_last_recv_time = 0;
+      }
+   }
 }

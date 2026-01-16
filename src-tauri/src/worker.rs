@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use std::path::{Path, PathBuf};
 use socket2::{Socket, TcpKeepalive};
 use crate::database::{Database, WorkerState, ErrorSeverity};
-use crate::types::{Trade, SlaveConfig};
+use crate::types::{Trade, SlaveConfig, AccountInfo};
 
 pub async fn run_worker(
     slave: SlaveConfig,
@@ -517,6 +517,39 @@ async fn monitor_connection_health(
     }
 }
 
+/// Process incoming ACCOUNT_INFO message from MT5
+async fn process_account_info(
+    worker_name: &str,
+    message: &str,
+    db: &Arc<Database>,
+    address: &str,
+) {
+    // Try to parse as AccountInfo
+    match serde_json::from_str::<AccountInfo>(message) {
+        Ok(account_info) => {
+            println!(
+                "[WORKER:{}] Received account info: balance={}, equity={}",
+                worker_name, account_info.balance, account_info.equity
+            );
+            
+            // Store account balance in database
+            if let Err(e) = db.insert_account_balance(
+                address,
+                account_info.balance,
+                account_info.equity,
+                account_info.margin,
+                "update",  // Event type: could be 'initial' or 'update'
+                None,
+            ).await {
+                eprintln!("[WORKER:{}] Failed to save account balance: {}", worker_name, e);
+            }
+        }
+        Err(e) => {
+            eprintln!("[WORKER:{}] Failed to parse account info: {}", worker_name, e);
+        }
+    }
+}
+
 async fn send_trade(
     connection: &Arc<Mutex<Option<tokio::net::TcpStream>>>,
     worker_name: &str,
@@ -525,8 +558,7 @@ async fn send_trade(
     address: &str,
 ) -> Result<u64> {
     let trade_json = serde_json::to_string(trade)?;
-    let message = format!("{}
-", trade_json);
+    let message = format!("{}\n", trade_json);
     
     // Start timing
     let start = Instant::now();
@@ -590,7 +622,21 @@ async fn send_trade(
             Ok(Ok(_)) => {
                 // Calculate latency in microseconds
                 let latency_us = start.elapsed().as_micros() as u64;
-                println!("[WORKER:{}] Received acknowledgment: {}", worker_name, ack_line.trim());
+                let response = ack_line.trim();
+                println!("[WORKER:{}] Received response: {}", worker_name, response);
+                
+                // Check if response is account info (starts with '{' and contains "balance")
+                if response.starts_with('{') && response.contains("balance") {
+                    // Process account info asynchronously
+                    let db_clone = db.clone();
+                    let address_clone = address.to_string();
+                    let worker_name_clone = worker_name.to_string();
+                    let response_clone = response.to_string();
+                    tokio::spawn(async move {
+                        process_account_info(&worker_name_clone, &response_clone, &db_clone, &address_clone).await;
+                    });
+                }
+                
                 Ok(latency_us)
             }
             Ok(Err(e)) => {

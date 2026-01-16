@@ -74,3 +74,16 @@ export interface SystemMetrics {
   totalWorkers: number;
   uptime: number;
 }
+
+export interface AccountBalance {
+  id: number;
+  workerId: number;
+  workerName: string;
+  workerAddress: string;
+  balance: number;
+  equity: number;
+  margin: number | null;
+  eventType: string;
+  tradeId: number | null;
+  createdAt: Date;
+}

@@ -206,6 +206,32 @@ impl Database {
                 [],
             )?;
             
+            // Create account_balances table for tracking account balance history
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS account_balances (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    worker_id INTEGER NOT NULL,
+                    balance REAL NOT NULL,
+                    equity REAL NOT NULL,
+                    margin REAL,
+                    event_type TEXT NOT NULL,
+                    trade_id INTEGER,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
+                )",
+                [],
+            )?;
+            
+            // Create indexes for account_balances table
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_account_balances_worker_id ON account_balances(worker_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_account_balances_created_at ON account_balances(created_at)",
+                [],
+            )?;
+            
             Ok(())
         }).await?;
         
@@ -781,6 +807,94 @@ impl Database {
         Ok(result)
     }
     
+    /// Insert account balance snapshot
+    pub async fn insert_account_balance(
+        &self,
+        address: &str,
+        balance: f64,
+        equity: f64,
+        margin: Option<f64>,
+        event_type: &str,
+        trade_id: Option<i64>,
+    ) -> Result<()> {
+        let address = address.to_string();
+        let event_type = event_type.to_string();
+        
+        self.conn.call(move |conn| {
+            // First, get the worker_id from the address
+            let worker_id: i64 = conn.query_row(
+                "SELECT id FROM workers WHERE address = ?1",
+                rusqlite::params![&address],
+                |row| row.get(0),
+            )?;
+            
+            // Insert the account balance snapshot
+            conn.execute(
+                "INSERT INTO account_balances (worker_id, balance, equity, margin, event_type, trade_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![worker_id, balance, equity, margin, &event_type, trade_id],
+            )?;
+            Ok(())
+        }).await?;
+        
+        Ok(())
+    }
+    
+    /// Get account balance history for all workers or a specific worker
+    pub async fn get_account_balance_history(
+        &self,
+        worker_id: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<AccountBalanceRecord>> {
+        let limit = limit.unwrap_or(1000);
+        
+        let result = self.conn.call(move |conn| {
+            let query = if let Some(wid) = worker_id {
+                format!(
+                    "SELECT ab.id, ab.worker_id, w.name as worker_name, w.address as worker_address,
+                            ab.balance, ab.equity, ab.margin, ab.event_type, ab.trade_id, ab.created_at
+                     FROM account_balances ab
+                     JOIN workers w ON ab.worker_id = w.id
+                     WHERE ab.worker_id = {}
+                     ORDER BY ab.created_at ASC
+                     LIMIT {}",
+                    wid, limit
+                )
+            } else {
+                format!(
+                    "SELECT ab.id, ab.worker_id, w.name as worker_name, w.address as worker_address,
+                            ab.balance, ab.equity, ab.margin, ab.event_type, ab.trade_id, ab.created_at
+                     FROM account_balances ab
+                     JOIN workers w ON ab.worker_id = w.id
+                     ORDER BY ab.created_at ASC
+                     LIMIT {}",
+                    limit
+                )
+            };
+            
+            let mut stmt = conn.prepare(&query)?;
+            
+            let balances = stmt.query_map([], |row| {
+                Ok(AccountBalanceRecord {
+                    id: row.get(0)?,
+                    worker_id: row.get(1)?,
+                    worker_name: row.get(2)?,
+                    worker_address: row.get(3)?,
+                    balance: row.get(4)?,
+                    equity: row.get(5)?,
+                    margin: row.get(6)?,
+                    event_type: row.get(7)?,
+                    trade_id: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            })?.collect::<Result<Vec<_>, _>>()?;
+            
+            Ok(balances)
+        }).await?;
+        
+        Ok(result)
+    }
+    
 }
 
 // API response types
@@ -873,4 +987,18 @@ pub struct SystemDependenciesRecord {
     pub wine_status: String,
     pub last_checked_at: String,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AccountBalanceRecord {
+    pub id: i64,
+    pub worker_id: i64,
+    pub worker_name: String,
+    pub worker_address: String,
+    pub balance: f64,
+    pub equity: f64,
+    pub margin: Option<f64>,
+    pub event_type: String,
+    pub trade_id: Option<i64>,
+    pub created_at: String,
 }
