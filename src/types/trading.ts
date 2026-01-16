@@ -73,6 +73,7 @@ export interface SystemMetrics {
   avgLatency: number;
   totalWorkers: number;
   uptime: number;
+  providerConnected: boolean;
 }
 
 export interface AccountBalance {

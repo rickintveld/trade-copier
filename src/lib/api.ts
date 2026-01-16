@@ -61,6 +61,7 @@ export interface ApiSystemMetrics {
   avg_latency_ms: number;
   uptime_seconds: number;
   total_workers: number;
+  provider_connected: boolean;
   created_at: string;
 }
 

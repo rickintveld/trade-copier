@@ -50,6 +50,9 @@ bool ConnectToRouter();
 void DisconnectFromRouter();
 bool EnsureConnection();
 
+// Visual indicator
+void DrawStatusIndicator();
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -79,6 +82,9 @@ int OnInit()
       g_connection_lost = true;
    }
    
+   // Draw initial status indicator
+   DrawStatusIndicator();
+   
    return INIT_SUCCEEDED;
 }
 
@@ -101,6 +107,9 @@ void OnTick()
    }
    
    CheckPositionModifications();
+   
+   // Update status indicator
+   DrawStatusIndicator();
 }
 
 //+------------------------------------------------------------------+
@@ -108,6 +117,10 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   // Clean up status indicator
+   ObjectDelete(0, "ProviderStatus");
+   ObjectDelete(0, "ProviderLabel");
+   
    DisconnectFromRouter();
    Print("[SENDER] Master EA stopped");
 }
@@ -499,4 +512,53 @@ string GetOrderTypeString(ENUM_ORDER_TYPE order_type)
       case ORDER_TYPE_SELL_STOP:  return "sell_stop";
       default: return "market";
    }
+}
+
+//+------------------------------------------------------------------+
+//| Draw status indicator on chart                                   |
+//+------------------------------------------------------------------+
+void DrawStatusIndicator()
+{
+   string labelName = "ProviderStatus";
+   string textName = "ProviderLabel";
+   
+   // Determine color based on connection status
+   color statusColor = g_connection_lost ? clrRed : clrLimeGreen;
+   string statusText = g_connection_lost ? "Provider: DISCONNECTED" : "Provider: CONNECTED";
+   
+   // Create or update status box
+   if(ObjectFind(0, labelName) < 0)
+   {
+      ObjectCreate(0, labelName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, labelName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, labelName, OBJPROP_XDISTANCE, 10);
+      ObjectSetInteger(0, labelName, OBJPROP_YDISTANCE, 30);
+      ObjectSetInteger(0, labelName, OBJPROP_XSIZE, 200);
+      ObjectSetInteger(0, labelName, OBJPROP_YSIZE, 30);
+      ObjectSetInteger(0, labelName, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, labelName, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, labelName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, labelName, OBJPROP_HIDDEN, true);
+   }
+   
+   ObjectSetInteger(0, labelName, OBJPROP_BGCOLOR, statusColor);
+   ObjectSetInteger(0, labelName, OBJPROP_BORDER_COLOR, statusColor);
+   
+   // Create or update status text
+   if(ObjectFind(0, textName) < 0)
+   {
+      ObjectCreate(0, textName, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, textName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, textName, OBJPROP_XDISTANCE, 20);
+      ObjectSetInteger(0, textName, OBJPROP_YDISTANCE, 38);
+      ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 9);
+      ObjectSetString(0, textName, OBJPROP_FONT, "Arial Bold");
+      ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, textName, OBJPROP_HIDDEN, true);
+   }
+   
+   ObjectSetString(0, textName, OBJPROP_TEXT, statusText);
+   ObjectSetInteger(0, textName, OBJPROP_COLOR, clrWhite);
+   
+   ChartRedraw();
 }

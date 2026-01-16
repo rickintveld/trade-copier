@@ -100,6 +100,7 @@ export const useTradingData = (): UseTradingDataReturn => {
     avgLatency: 0,
     totalWorkers: 0,
     uptime: 0,
+    providerConnected: false,
   });
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
@@ -145,6 +146,7 @@ export const useTradingData = (): UseTradingDataReturn => {
           avgLatency: apiMetrics.avg_latency_ms,
           uptime: apiMetrics.uptime_seconds,
           totalWorkers: apiMetrics.total_workers,
+          providerConnected: apiMetrics.provider_connected,
         });
       } catch (metricsError) {
         if (import.meta.env.DEV) {
@@ -172,6 +174,7 @@ export const useTradingData = (): UseTradingDataReturn => {
         avgLatency: 0,
         uptime: 0,
         totalWorkers: 0,
+        providerConnected: false,
       });
     }
   }, []);

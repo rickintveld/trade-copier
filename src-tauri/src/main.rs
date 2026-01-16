@@ -86,8 +86,9 @@ async fn main() -> Result<()> {
     });
 
     // Spawn router
+    let router_db = db.clone();
     tokio::spawn(async move {
-        if let Err(e) = router::run_router(tx).await {
+        if let Err(e) = router::run_router(tx, router_db).await {
             error!("Router error: {}", e);
         }
     });
@@ -112,9 +113,9 @@ async fn main() -> Result<()> {
                 Err(_) => (0, 0),
             };
 
-            // Update system metrics
+            // Update system metrics (provider_connected defaults to false, will be updated by router)
             if let Err(e) = metrics_db
-                .upsert_system_metrics("online", 5000, true, total_workers, active_workers, uptime_seconds)
+                .upsert_system_metrics("online", 5000, true, total_workers, active_workers, uptime_seconds, false)
                 .await
             {
                 error!("Failed to update system metrics: {}", e);

@@ -9,7 +9,7 @@ interface DashboardHeaderProps {
 
 const DashboardHeader: React.FC<DashboardHeaderProps> = ({ 
   isConnected,
-  onMenuClick 
+  onMenuClick,
 }) => {
   return (
     <header className="flex items-center justify-between px-6 py-4 bg-card/80 backdrop-blur-sm border-b border-border/50">

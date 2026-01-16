@@ -190,6 +190,12 @@ impl Database {
                 [],
             );
             
+            // Add provider_connected column if it doesn't exist (migration)
+            let _ = conn.execute(
+                "ALTER TABLE system_metrics ADD COLUMN provider_connected BOOLEAN NOT NULL DEFAULT 0",
+                [],
+            );
+            
             // Create system_dependencies table for tracking dependency installation
             // Single row table - always id=1
             conn.execute(
@@ -403,6 +409,7 @@ impl Database {
         total_workers: i32,
         active_workers: i32,
         uptime_seconds: u64,
+        provider_connected: bool,
     ) -> Result<()> {
         let router_status = router_status.to_string();
         
@@ -428,8 +435,8 @@ impl Database {
         self.conn.call(move |conn| {
             conn.execute(
                 "INSERT INTO system_metrics 
-                 (id, router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds, total_trades, avg_latency_ms, updated_at)
-                 VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)
+                 (id, router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds, total_trades, avg_latency_ms, provider_connected, updated_at)
+                 VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP)
                  ON CONFLICT(id) DO UPDATE SET
                     router_status = excluded.router_status,
                     router_port = excluded.router_port,
@@ -439,8 +446,9 @@ impl Database {
                     uptime_seconds = excluded.uptime_seconds,
                     total_trades = excluded.total_trades,
                     avg_latency_ms = excluded.avg_latency_ms,
+                    provider_connected = excluded.provider_connected,
                     updated_at = CURRENT_TIMESTAMP",
-                rusqlite::params![&router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds as i64, total_trades, avg_latency_ms],
+                rusqlite::params![&router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds as i64, total_trades, avg_latency_ms, provider_connected],
             )?;
             Ok(())
         }).await?;
@@ -554,6 +562,7 @@ impl Database {
                         total_workers, active_workers, uptime_seconds, 
                         COALESCE(total_trades, 0) as total_trades,
                         COALESCE(avg_latency_ms, 0.0) as avg_latency_ms,
+                        COALESCE(provider_connected, 0) as provider_connected,
                         updated_at
                  FROM system_metrics
                  WHERE id = 1"
@@ -571,7 +580,8 @@ impl Database {
                     uptime_seconds: row.get(6)?,
                     total_trades: row.get(7)?,
                     avg_latency_ms: row.get(8)?,
-                    updated_at: row.get(9)?,
+                    provider_connected: row.get(9)?,
+                    updated_at: row.get(10)?,
                 }))
             } else {
                 Ok(None)
@@ -953,6 +963,7 @@ pub struct SystemMetricsRecord {
     pub uptime_seconds: i64,
     pub total_trades: i64,
     pub avg_latency_ms: f64,
+    pub provider_connected: bool,
     pub updated_at: String,
 }
 
