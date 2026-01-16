@@ -159,7 +159,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
                 <p className="text-2xl font-bold">{metrics.activeConnections}/{metrics.totalWorkers}</p>
               </div>
               <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Total Trades</p>
+                <p className="text-sm text-muted-foreground">Total Signals</p>
                 <p className="text-2xl font-bold">{metrics.totalTrades}</p>
               </div>
               <div className="space-y-1">
