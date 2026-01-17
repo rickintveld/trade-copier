@@ -205,9 +205,30 @@ pub async fn start_instance(
         .map_err(|e| format!("Failed to get worker: {}", e))?
         .ok_or_else(|| format!("Worker with ID {} not found", id))?;
     
+    // If force is true, stop the existing worker first to release the TCP port
+    if force {
+        let tx = state.worker_command_tx.lock().await;
+        if let Err(e) = tx.send(WorkerCommand::Stop(worker.id)).await {
+            eprintln!("[TAURI] Failed to send stop command before force start: {}", e);
+        } else {
+            // Give the worker time to shut down and release the port
+            drop(tx); // Release the lock before sleeping
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+    }
+    
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => match manager.start_instance(&worker, force).await {
             Ok(()) => {
+                // Clear any previous error state
+                if let Err(e) = state.db.update_worker_state(
+                    &worker.address,
+                    crate::database::WorkerState::Inactive,
+                    None,
+                ).await {
+                    eprintln!("[TAURI] Failed to clear error state: {}", e);
+                }
+                
                 // Now send start command to worker manager
                 let tx = state.worker_command_tx.lock().await;
                 if let Err(e) = tx.send(WorkerCommand::Start(worker.id)).await {

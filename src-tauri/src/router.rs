@@ -5,11 +5,13 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use std::sync::Arc;
 use crate::types::Trade;
 use crate::database::Database;
+use log::{info, warn};
 
 const ROUTER_PORT: u16 = 5000;
+const MAX_BIND_RETRIES: u32 = 3;
 
 pub async fn run_router(tx: broadcast::Sender<Trade>, db: Arc<Database>) -> Result<()> {
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", ROUTER_PORT)).await?;
+    let listener = bind_with_retry(ROUTER_PORT).await?;
     println!("[ROUTER] Listening on port {} (TCP)", ROUTER_PORT);
 
     loop {
@@ -103,4 +105,92 @@ async fn update_provider_status(db: &Arc<Database>, connected: bool) -> Result<(
     }
     
     Ok(())
+}
+
+/// Attempts to bind to the specified port, killing any process using it if necessary
+async fn bind_with_retry(port: u16) -> Result<TcpListener> {
+    for attempt in 1..=MAX_BIND_RETRIES {
+        match TcpListener::bind(format!("0.0.0.0:{}", port)).await {
+            Ok(listener) => {
+                info!("[ROUTER] Successfully bound to port {}", port);
+                return Ok(listener);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                warn!(
+                    "[ROUTER] Port {} is already in use (attempt {}/{}). Attempting to free the port...",
+                    port, attempt, MAX_BIND_RETRIES
+                );
+                
+                if let Err(kill_err) = kill_process_on_port(port).await {
+                    warn!("[ROUTER] Failed to kill process on port {}: {}", port, kill_err);
+                }
+                
+                // Wait a bit for the port to be released
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                
+                if attempt == MAX_BIND_RETRIES {
+                    return Err(anyhow::anyhow!(
+                        "Failed to bind to port {} after {} attempts. Port is still in use.",
+                        port,
+                        MAX_BIND_RETRIES
+                    ));
+                }
+            }
+            Err(e) => {
+                return Err(e.into());
+            }
+        }
+    }
+    
+    unreachable!()
+}
+
+/// Kills any process listening on the specified port
+async fn kill_process_on_port(port: u16) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        
+        // Use lsof to find the process using the port
+        let output = Command::new("lsof")
+            .args(["-ti", &format!(":{}", port)])
+            .output()?;
+        
+        if output.status.success() {
+            let pids = String::from_utf8_lossy(&output.stdout);
+            for pid in pids.lines().filter(|line| !line.is_empty()) {
+                info!("[ROUTER] Killing process {} using port {}", pid, port);
+                let _ = Command::new("kill")
+                    .args(["-9", pid])
+                    .status();
+            }
+            return Ok(());
+        }
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        
+        // Use netstat to find the process and taskkill to terminate it
+        let output = Command::new("cmd")
+            .args(["/C", &format!("netstat -ano | findstr :{}", port)])
+            .output()?;
+        
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            // Extract PID from netstat output (last column)
+            if let Some(line) = output_str.lines().next() {
+                if let Some(pid) = line.split_whitespace().last() {
+                    info!("[ROUTER] Killing process {} using port {}", pid, port);
+                    let _ = Command::new("taskkill")
+                        .args(["/F", "/PID", pid])
+                        .status();
+                    return Ok(());
+                }
+            }
+        }
+    }
+    
+    Err(anyhow::anyhow!("Could not find or kill process on port {}", port))
 }
