@@ -138,7 +138,7 @@ const ProfitChart: React.FC<ProfitChartProps> = ({ balances }) => {
           {/* Main Chart */}
           <Card className="glass-card border-border/50">
             <CardHeader>
-              <CardTitle className="text-lg">Account Balance Over Time</CardTitle>
+              <CardTitle className="text-lg">Account Balance</CardTitle>
               <CardDescription>Track profit/loss for each connected account</CardDescription>
             </CardHeader>
             <CardContent>

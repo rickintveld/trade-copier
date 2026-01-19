@@ -128,6 +128,31 @@ void OnTick()
 }
 
 //+------------------------------------------------------------------+
+//| Trade transaction event handler                                  |
+//+------------------------------------------------------------------+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+{
+   // Check if a deal was completed (position closed or modified)
+   if(trans.type == TRADE_TRANSACTION_DEAL_ADD)
+   {
+      // Get deal information
+      if(HistoryDealSelect(trans.deal))
+      {
+         ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+         
+         // If this is an exit deal (position closed), send account info
+         if(entry == DEAL_ENTRY_OUT)
+         {
+            Print("[RECEIVER] Position closed (SL/TP/Manual), sending account info");
+            SendAccountInfo();
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Check for incoming trades                                        |
 //+------------------------------------------------------------------+
 void CheckIncomingTrades()
