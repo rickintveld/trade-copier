@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Worker } from '@/types/trading';
-import { formatRelativeTime, formatLatency } from '@/lib/formatters';
+import { formatLatency } from '@/lib/formatters';
 import { tradeCopierApi } from '@/lib/api';
-import { Wifi, WifiOff, Activity, Clock, Gauge, Trash2, RotateCw } from 'lucide-react';
+import { Wifi, WifiOff, Activity, Clock, Gauge, Trash2, RotateCw, Loader2 } from 'lucide-react';
 
 interface WorkerCardProps {
   worker: Worker;
@@ -10,28 +10,44 @@ interface WorkerCardProps {
 
 const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleStart = async (force: boolean = false) => {
+    if (force) {
+      setIsRestarting(true);
+    } else {
+      setIsStarting(true);
+    }
     try {
       await tradeCopierApi.startWorker(worker.id, force);
     } catch (error) {
       if (import.meta.env.DEV) {
         console.error('Failed to start worker:', error);
       }
+    } finally {
+      setIsStarting(false);
+      setIsRestarting(false);
     }
   };
 
   const handleStop = async () => {
+    setIsStopping(true);
     try {
       await tradeCopierApi.stopWorker(worker.id);
     } catch (error) {
       if (import.meta.env.DEV) {
         console.error('Failed to stop worker:', error);
       }
+    } finally {
+      setIsStopping(false);
     }
   };
 
   const handleDelete = async () => {
+    setIsDeleting(true);
     try {
       await tradeCopierApi.deleteWorker(worker.id);
       setShowDeleteConfirm(false);
@@ -39,6 +55,8 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
       if (import.meta.env.DEV) {
         console.error('Failed to delete worker:', error);
       }
+    } finally {
+      setIsDeleting(false);
     }
   };
   const statusColors = {
@@ -142,31 +160,40 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
           {worker.status === 'active' ? (
             <button
               onClick={handleStop}
-              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-status-error rounded hover:bg-status-error/90 transition-colors"
+              disabled={isStopping || isDeleting}
+              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-status-error rounded hover:bg-status-error/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-status-error flex items-center justify-center gap-2"
             >
+              {isStopping && <Loader2 className="w-4 h-4 animate-spin" />}
               Stop Worker
             </button>
           ) : (
             <button
               onClick={() => handleStart(false)}
-              disabled={worker.status === 'installing' || worker.status === 'error'}
-              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary rounded hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
+              disabled={worker.status === 'installing' || worker.status === 'error' || isStarting || isRestarting || isDeleting}
+              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary rounded hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary flex items-center justify-center gap-2"
             >
+              {isStarting && <Loader2 className="w-4 h-4 animate-spin" />}
               {worker.status === 'installing' ? 'Installing...' : 'Start Worker'}
             </button>
           )}
           {(worker.status === 'error' || worker.status === 'inactive') && (
             <button
               onClick={() => handleStart(true)}
-              className="px-4 py-2 text-sm font-medium text-white bg-status-warning/80 rounded hover:bg-status-warning transition-colors"
+              disabled={isRestarting || isStarting || isDeleting}
+              className="px-4 py-2 text-sm font-medium text-white bg-status-warning/80 rounded hover:bg-status-warning transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-status-warning/80 flex items-center justify-center"
               title="Force restart - kills any process using the worker's port and restarts"
             >
-              <RotateCw className="w-4 h-4" />
+              {isRestarting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RotateCw className="w-4 h-4" />
+              )}
             </button>
           )}
           <button
             onClick={() => setShowDeleteConfirm(true)}
-            className="px-4 py-2 text-sm font-medium text-white bg-status-error/80 rounded hover:bg-status-error transition-colors"
+            disabled={isStarting || isStopping || isRestarting || isDeleting}
+            className="px-4 py-2 text-sm font-medium text-white bg-status-error/80 rounded hover:bg-status-error transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-status-error/80"
             title="Delete Worker"
           >
             <Trash2 className="w-4 h-4" />
@@ -186,14 +213,17 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="px-4 py-2 text-sm font-medium text-foreground bg-accent/20 rounded hover:bg-accent/30 transition-colors"
+                disabled={isDeleting}
+                className="px-4 py-2 text-sm font-medium text-foreground bg-accent/20 rounded hover:bg-accent/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDelete}
-                className="px-4 py-2 text-sm font-medium text-white bg-status-error rounded hover:bg-status-error/90 transition-colors"
+                disabled={isDeleting}
+                className="px-4 py-2 text-sm font-medium text-white bg-status-error rounded hover:bg-status-error/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
+                {isDeleting && <Loader2 className="w-4 h-4 animate-spin" />}
                 Delete
               </button>
             </div>
