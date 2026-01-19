@@ -5,6 +5,7 @@ mod database;
 mod dependency_manager;
 mod ea_sync;
 mod installer;
+mod port_utils;
 mod router;
 mod tauri_commands;
 mod types;

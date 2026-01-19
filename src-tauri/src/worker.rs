@@ -1,5 +1,4 @@
 use anyhow::Result;
-use tokio::net::TcpListener;
 use tokio::sync::{broadcast, watch};
 use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
 use std::sync::Arc;
@@ -33,7 +32,8 @@ pub async fn run_worker(
         eprintln!("[WORKER:{}] Failed to update database on startup: {}", slave.name, e);
     }
 
-    let listener = match TcpListener::bind(&slave.address).await {
+    // Try to bind with automatic retry and port cleanup
+    let listener = match crate::port_utils::bind_with_retry(&slave.address).await {
         Ok(l) => l,
         Err(e) => {
             // Update database with error state
