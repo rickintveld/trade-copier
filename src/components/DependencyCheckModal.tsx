@@ -1,173 +1,165 @@
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { useDependencyStatus, DependencyStatus } from "@/hooks/useDependencyStatus";
-import { Loader2, CheckCircle2, XCircle, AlertCircle, Monitor, Package, Wine } from "lucide-react";
+import { useDependencyStatus } from "@/hooks/useDependencyStatus";
+import { CheckCircle2, ExternalLink, AlertCircle, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { stat } from "fs";
 
-const StatusIcon = ({ status }: { status: string }) => {
-  switch (status) {
-    case "installed":
-      return <CheckCircle2 className="h-5 w-5 text-green-500" />;
-    case "installing":
-      return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />;
-    case "error":
-      return <XCircle className="h-5 w-5 text-red-500" />;
-    case "pending":
-    default:
-      return <AlertCircle className="h-5 w-5 text-yellow-500" />;
-  }
-};
-
-const StatusText = ({ status }: { status: string }) => {
-  switch (status) {
-    case "installed":
-      return <span className="text-green-600 font-medium">Installed</span>;
-    case "installing":
-      return <span className="text-blue-600 font-medium">Installing...</span>;
-    case "error":
-      return <span className="text-red-600 font-medium">Error</span>;
-    case "pending":
-    default:
-      return <span className="text-yellow-600 font-medium">Pending</span>;
-  }
-};
-
-const DependencyItem = ({ 
-  icon: Icon, 
-  label, 
-  status 
+const SetupStep = ({ 
+  number, 
+  title, 
+  description,
+  isWarning = false,
+  isReady = false,
 }: { 
-  icon: any; 
-  label: string; 
-  status: string;
+  number: number; 
+  title: string; 
+  description: string;
+  isWarning?: boolean;
+  isReady?: boolean;
 }) => {
   return (
-    <div className="flex items-center justify-between p-4 border rounded-lg">
-      <div className="flex items-center gap-3">
-        <Icon className="h-6 w-6 text-gray-600" />
-        <span className="font-medium text-white-600">{label}</span>
+    <div className="flex gap-3 p-3 border rounded-lg">
+      <div className="flex-shrink-0">
+        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-semibold text-sm">
+          {number}
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <StatusIcon status={status} />
-        <StatusText status={status} />
+      <div className="flex-1 space-y-1">
+        <h4 className="font-medium text-sm">{title}</h4>
+        <p className="text-sm text-muted-foreground">{description}</p>
       </div>
+      {isWarning && (
+        <AlertCircle className="h-5 w-5 text-yellow-500 flex-shrink-0" />
+      )}
+      {isReady && (
+        <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+      )}
     </div>
   );
 };
 
-export function DependencyCheckModal() {
-  const { status, loading, error, installDependencies } = useDependencyStatus();
-  const [open, setOpen] = useState(false);
-  const [hasStartedInstall, setHasStartedInstall] = useState(false);
+interface DependencyCheckModalProps {
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
+export function DependencyCheckModal({ isOpen, onOpenChange }: DependencyCheckModalProps = {}) {
+  const { status } = useDependencyStatus();
+  const [internalOpen, setInternalOpen] = useState(true);
+
+  // Use external control if provided, otherwise use internal state
+  const open = isOpen !== undefined ? isOpen : internalOpen;
+  const setOpen = onOpenChange || setInternalOpen;
 
   useEffect(() => {
-    // Show modal if dependencies are not all installed
-    if (status && !status.all_installed) {
-      setOpen(true);
-      
-      // Auto-start installation if not started yet
-      if (!hasStartedInstall && 
-          (status.package_manager_status === "pending" || status.wine_status === "pending")) {
-        setHasStartedInstall(true);
-        installDependencies();
+    // Only auto-show on first load when not externally controlled
+    if (isOpen === undefined) {
+      const hasSeenSetup = localStorage.getItem('hasSeenSetupGuide');
+      if (hasSeenSetup) {
+        setInternalOpen(false);
       }
-    } else if (status && status.all_installed) {
-      // Auto-close when all dependencies are installed
-      setOpen(false);
     }
-  }, [status, hasStartedInstall]);
+  }, [isOpen]);
 
-  if (loading && !status) {
-    return null;
-  }
+  const handleClose = () => {
+    setOpen(false);
+    if (isOpen === undefined) {
+      localStorage.setItem('hasSeenSetupGuide', 'true');
+    }
+  };
 
-  if (!status) {
-    return null;
-  }
-
-  const needsInstallation = !status.all_installed;
+  const videoUrl = "https://www.youtube.com/watch?v=t42wSa0e-jQ";
 
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent 
-        className="sm:max-w-md"
-        onPointerDownOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
-      >
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>System Dependencies</DialogTitle>
+          <DialogTitle>Setup Guide</DialogTitle>
           <DialogDescription>
-            Setting up required dependencies for Trade Copier
+            Follow these steps to get Trade Copier working correctly
           </DialogDescription>
         </DialogHeader>
 
+        {/* Video Link */}
         <div className="space-y-3">
-          {/* OS Information */}
-          <DependencyItem
-            icon={Monitor}
-            label={`${status.os_name}${status.os_version ? ` ${status.os_version}` : ""}`}
-            status="installed"
-          />
+          <a 
+            href={videoUrl}
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 p-4 border-2 border-primary rounded-lg hover:bg-primary/10 transition-colors"
+          >
+            <span className="font-semibold">Watch Setup Video Tutorial</span>
+            <ExternalLink className="h-4 w-4" />
+          </a>
 
-          {/* Package Manager */}
-          <DependencyItem
-            icon={Package}
-            label={status.package_manager_name}
-            status={status.package_manager_status}
-          />
+          {/* Warning Alert */}
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              MetaTrader 5 must be installed for the Expert Advisor copying functionality to work. If not already installed, install MT5 and restart this app.
+            </AlertDescription>
+          </Alert>
 
-          {/* Wine (only on macOS/Linux) */}
-          {status.os_name !== "Windows" && (
-            <DependencyItem
-              icon={Wine}
-              label="Wine"
-              status={status.wine_status}
+          {/* Setup Steps */}
+          <div className="space-y-3 mt-4">
+            <h3 className="font-semibold text-sm mb-2">Quick Setup Steps:</h3>
+            
+            <SetupStep
+              number={1}
+              title="Install MetaTrader 5"
+              description="Download and install MetaTrader 5 from your broker or MetaQuotes.net. After installation, restart this app."
+              isWarning={!status?.all_installed}
+              isReady={status?.all_installed}
             />
+
+            <SetupStep
+              number={2}
+              title="Configure MT5 Settings (Do this on ALL terminals)"
+              description="In MT5: Tools → Options → Expert Advisors tab. Check ✓ 'Allow DLL imports' and ✓ 'Allow WebRequest for listed URLs'. Add http://127.0.0.1 to the URL list. Click OK."
+              isWarning={true}
+            />
+
+            <SetupStep
+              number={3}
+              title="Setup Master Terminal"
+              description="Expert Advisors are automatically installed to your master MT5. Open MT5 Navigator (Ctrl+N), expand Expert Advisors → Trading Rocket. Drag 'Signal Provider' onto any chart. Keep default settings (RouterIP: 127.0.0.1, RouterPort: 5000). Enable AutoTrading (Ctrl+E)."
+            />
+
+            <SetupStep
+              number={4}
+              title="Create Worker Instance"
+              description="In this dashboard, create a worker instance with your settings (name, address like 127.0.0.1:5050, and lot multiplier). The app will automatically create a slave MT5 terminal with the Signal Receiver EA already installed. Start the worker."
+            />
+
+            <SetupStep
+              number={5}
+              title="Setup Slave Terminal"
+              description="Open the slave MT5 terminal (created automatically). Navigate to Expert Advisors → Trading Rocket. Drag 'Signal Receiver' onto any chart. Set WorkerIP: 127.0.0.1 and WorkerPort: 5050 (match your worker). Enable AutoTrading (Ctrl+E)."
+            />
+
+            <SetupStep
+              number={6}
+              title="Verify Everything Works"
+              description="Check MT5 Experts tab (Ctrl+T) for '[SENDER] Connected to router' and '[RECEIVER] Connected to worker' messages. In dashboard, verify worker shows 'mt5_connected: true'. Place a test trade in master terminal."
+            />
+          </div>
+
+          {/* Success indicator if MT5 detected */}
+          {status?.all_installed && (
+            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <CheckCircle2 className="h-5 w-5 text-green-600" />
+              <span className="text-sm font-medium text-green-700">
+                System dependencies are installed and ready!
+              </span>
+            </div>
           )}
         </div>
 
-        {/* Error Message */}
-        {error && (
-          <Alert variant="destructive">
-            <XCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {status.error_message && (
-          <Alert variant="destructive">
-            <XCircle className="h-4 w-4" />
-            <AlertDescription>{status.error_message}</AlertDescription>
-          </Alert>
-        )}
-
-        {/* Retry Button (only show on error) */}
-        {(status.package_manager_status === "error" || status.wine_status === "error") && (
-          <Button 
-            onClick={() => {
-              setHasStartedInstall(true);
-              installDependencies();
-            }}
-            className="w-full"
-          >
-            Retry Installation
-          </Button>
-        )}
-
-        {/* Installing message */}
-        {(status.package_manager_status === "installing" || status.wine_status === "installing") && (
-          <p className="text-sm text-center text-white-600">
-            Please wait while dependencies are being installed. This may take several minutes.
-          </p>
-        )}
-
-        {/* Success message */}
-        {status.all_installed && (
-          <p className="text-sm text-center text-green-600 font-medium">
-            All dependencies installed successfully!
-          </p>
-        )}
+        <Button onClick={handleClose} className="w-full mt-4">
+          Got it, Let's Start
+        </Button>
       </DialogContent>
     </Dialog>
   );

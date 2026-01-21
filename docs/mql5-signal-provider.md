@@ -47,7 +47,7 @@ The Signal Provider EA is an MQL5 Expert Advisor that runs on the master MT5 ter
 
 2. Enable:
    - ☑ `Allow DLL imports`
-   - ☑ `Allow WebRequest for listed URLs` (optional but recommended)
+   - ☑ `Allow WebRequest for listed URLs` (127.0.0.1)
 
 3. Click `OK`
 
