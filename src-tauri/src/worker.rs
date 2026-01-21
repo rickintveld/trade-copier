@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, watch, mpsc};
 use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
 use std::sync::Arc;
 use std::time::{Instant, Duration};
@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use socket2::{Socket, TcpKeepalive};
 use crate::database::{Database, WorkerState, ErrorSeverity};
 use crate::types::{Trade, SlaveConfig, AccountInfo};
+use std::collections::HashMap;
 
 pub async fn run_worker(
     slave: SlaveConfig,
@@ -64,6 +65,9 @@ pub async fn run_worker(
     let name_clone = slave.name.clone();
     let address_clone = slave.address.clone();
     let db_clone = db.clone();
+    
+    // Channel for pending acknowledgments (trade_id -> sender)
+    let pending_acks: Arc<Mutex<HashMap<u64, mpsc::Sender<String>>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // Spawn Wine process monitoring task if prefix is provided
     if let Some(prefix) = wine_prefix {
@@ -91,6 +95,25 @@ pub async fn run_worker(
             address_heartbeat,
             db_heartbeat,
             shutdown_heartbeat,
+        ).await;
+    });
+    
+    // Spawn message reader task to continuously read from MT5
+    let connection_reader = connection.clone();
+    let pending_acks_reader = pending_acks.clone();
+    let name_reader = slave.name.clone();
+    let address_reader = slave.address.clone();
+    let db_reader = db.clone();
+    let shutdown_reader = shutdown_rx.clone();
+    
+    tokio::spawn(async move {
+        read_mt5_messages(
+            connection_reader,
+            pending_acks_reader,
+            name_reader,
+            address_reader,
+            db_reader,
+            shutdown_reader,
         ).await;
     });
 
@@ -169,7 +192,7 @@ pub async fn run_worker(
                 );
 
                     // Send trade to connected MT5 receiver and measure latency
-                    match send_trade(&connection, &slave.name, &trade, &db, &slave.address).await {
+                    match send_trade(&connection, &pending_acks, &slave.name, &trade, &db, &slave.address).await {
                         Ok(latency_us) => {
                             println!("[WORKER:{}] Trade sent successfully, latency: {}µs", slave.name, latency_us);
                             
@@ -517,6 +540,111 @@ async fn monitor_connection_health(
     }
 }
 
+/// Continuously read messages from MT5 connection
+async fn read_mt5_messages(
+    connection: Arc<Mutex<Option<tokio::net::TcpStream>>>,
+    pending_acks: Arc<Mutex<HashMap<u64, mpsc::Sender<String>>>>,
+    worker_name: String,
+    address: String,
+    db: Arc<Database>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) {
+    println!("[WORKER:{}] MT5 message reader started", worker_name);
+    
+    loop {
+        tokio::select! {
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    println!("[WORKER:{}] MT5 message reader shutting down", worker_name);
+                    break;
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                // Try to read from connection if available
+                let mut conn_guard = connection.lock().await;
+                
+                if let Some(stream) = conn_guard.as_mut() {
+                    // Use a non-blocking read with timeout
+                    let mut reader = BufReader::new(stream);
+                    let mut line = String::new();
+                    
+                    // Try to read a line with a short timeout
+                    match tokio::time::timeout(
+                        Duration::from_millis(500),
+                        reader.read_line(&mut line)
+                    ).await {
+                        Ok(Ok(0)) => {
+                            // Connection closed
+                            println!("[WORKER:{}] MT5 connection closed", worker_name);
+                            *conn_guard = None;
+                            
+                            if let Err(e) = db.update_mt5_connected(&address, false).await {
+                                eprintln!("[WORKER:{}] Failed to update mt5_connected: {}", worker_name, e);
+                            }
+                        }
+                        Ok(Ok(_)) => {
+                            // Got a message
+                            let message = line.trim();
+                            if !message.is_empty() {
+                                process_mt5_message(
+                                    &worker_name,
+                                    message,
+                                    &pending_acks,
+                                    &db,
+                                    &address,
+                                ).await;
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            // Read error
+                            eprintln!("[WORKER:{}] Read error from MT5: {}", worker_name, e);
+                            *conn_guard = None;
+                            
+                            if let Err(e) = db.update_mt5_connected(&address, false).await {
+                                eprintln!("[WORKER:{}] Failed to update mt5_connected: {}", worker_name, e);
+                            }
+                        }
+                        Err(_) => {
+                            // Timeout - no data available, continue loop
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Process a message received from MT5
+async fn process_mt5_message(
+    worker_name: &str,
+    message: &str,
+    pending_acks: &Arc<Mutex<HashMap<u64, mpsc::Sender<String>>>>,
+    db: &Arc<Database>,
+    address: &str,
+) {
+    // Check if it's account info (JSON with balance field)
+    if message.starts_with('{') && message.contains("balance") {
+        // Process as account info
+        process_account_info(worker_name, message, db, address).await;
+    } else if message.starts_with("OK:") || message.starts_with("ERROR:") {
+        // This is an acknowledgment - try to match it to a pending trade
+        // For now, just forward to any waiting receiver
+        // (We could parse trade_id from the ack message if needed)
+        let acks = pending_acks.lock().await;
+        
+        // Send to first pending ack (FIFO)
+        if let Some((_, sender)) = acks.iter().next() {
+            let _ = sender.send(message.to_string()).await;
+        } else {
+            // No pending ack, just log
+            println!("[WORKER:{}] Received unexpected ack: {}", worker_name, message);
+        }
+    } else {
+        // Unknown message type
+        println!("[WORKER:{}] Received unknown message: {}", worker_name, message);
+    }
+}
+
 /// Process incoming ACCOUNT_INFO message from MT5
 async fn process_account_info(
     worker_name: &str,
@@ -552,6 +680,7 @@ async fn process_account_info(
 
 async fn send_trade(
     connection: &Arc<Mutex<Option<tokio::net::TcpStream>>>,
+    pending_acks: &Arc<Mutex<HashMap<u64, mpsc::Sender<String>>>>,
     worker_name: &str,
     trade: &Trade,
     db: &Arc<Database>,
@@ -563,95 +692,63 @@ async fn send_trade(
     // Start timing
     let start = Instant::now();
     
-    // Lock for the entire send/receive operation
-    // Note: While this still holds the lock during I/O, it's necessary because
-    // we need exclusive access to the stream for the full request-response cycle
-    let mut conn_guard = connection.lock().await;
+    // Create a channel to receive the acknowledgment
+    let (ack_tx, mut ack_rx) = mpsc::channel::<String>(1);
     
-    if let Some(stream) = conn_guard.as_mut() {
-        // Send the trade
-        if let Err(e) = stream.write_all(message.as_bytes()).await {
-            eprintln!("[WORKER:{}] Write error, connection lost: {}", worker_name, e);
-            *conn_guard = None; // Clear dead connection
-            
-            // Update mt5_connected to false
-            if let Err(db_err) = db.update_mt5_connected(address, false).await {
-                eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
-            }
-            
-            return Err(anyhow::anyhow!("Connection lost: {}", e));
-        }
+    // Register this trade as pending acknowledgment
+    {
+        let mut acks = pending_acks.lock().await;
+        acks.insert(trade.id, ack_tx);
+    }
+    
+    // Send the trade
+    {
+        let mut conn_guard = connection.lock().await;
         
-        println!("[WORKER:{}] Sent trade: {}", worker_name, trade_json);
-        
-        // Wait for acknowledgment from MT5 receiver with timeout
-        let mut reader = BufReader::new(stream);
-        let mut ack_line = String::new();
-        
-        // 5 second timeout for acknowledgment
-        let read_result = tokio::time::timeout(
-            Duration::from_secs(5),
-            reader.read_line(&mut ack_line)
-        ).await;
-        
-        match read_result {
-            Err(_) => {
-                // Timeout occurred
-                eprintln!("[WORKER:{}] Timeout waiting for acknowledgment (5s)", worker_name);
+        if let Some(stream) = conn_guard.as_mut() {
+            if let Err(e) = stream.write_all(message.as_bytes()).await {
+                eprintln!("[WORKER:{}] Write error, connection lost: {}", worker_name, e);
                 *conn_guard = None;
                 
-                // Update mt5_connected to false
-                if let Err(e) = db.update_mt5_connected(address, false).await {
-                    eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, e);
-                }
-                
-                Err(anyhow::anyhow!("Acknowledgment timeout"))
-            }
-            Ok(Ok(0)) => {
-                // Connection closed
-                eprintln!("[WORKER:{}] Connection closed while waiting for acknowledgment", worker_name);
-                *conn_guard = None;
-                
-                // Update mt5_connected to false
-                if let Err(e) = db.update_mt5_connected(address, false).await {
-                    eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, e);
-                }
-                
-                Err(anyhow::anyhow!("Connection closed"))
-            }
-            Ok(Ok(_)) => {
-                // Calculate latency in microseconds
-                let latency_us = start.elapsed().as_micros() as u64;
-                let response = ack_line.trim();
-                println!("[WORKER:{}] Received response: {}", worker_name, response);
-                
-                // Check if response is account info (starts with '{' and contains "balance")
-                if response.starts_with('{') && response.contains("balance") {
-                    // Process account info asynchronously
-                    let db_clone = db.clone();
-                    let address_clone = address.to_string();
-                    let worker_name_clone = worker_name.to_string();
-                    let response_clone = response.to_string();
-                    tokio::spawn(async move {
-                        process_account_info(&worker_name_clone, &response_clone, &db_clone, &address_clone).await;
-                    });
-                }
-                
-                Ok(latency_us)
-            }
-            Ok(Err(e)) => {
-                eprintln!("[WORKER:{}] Read error: {}", worker_name, e);
-                *conn_guard = None;
+                // Clean up pending ack
+                pending_acks.lock().await.remove(&trade.id);
                 
                 // Update mt5_connected to false
                 if let Err(db_err) = db.update_mt5_connected(address, false).await {
                     eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
                 }
                 
-                Err(anyhow::anyhow!("Failed to read acknowledgment: {}", e))
+                return Err(anyhow::anyhow!("Connection lost: {}", e));
             }
+            
+            println!("[WORKER:{}] Sent trade: {}", worker_name, trade_json);
+        } else {
+            // Clean up pending ack
+            pending_acks.lock().await.remove(&trade.id);
+            return Err(anyhow::anyhow!("No MT5 receiver connected"));
         }
-    } else {
-        Err(anyhow::anyhow!("No MT5 receiver connected"))
+    }
+    
+    // Wait for acknowledgment with timeout
+    match tokio::time::timeout(Duration::from_secs(5), ack_rx.recv()).await {
+        Ok(Some(response)) => {
+            // Clean up pending ack
+            pending_acks.lock().await.remove(&trade.id);
+            
+            let latency_us = start.elapsed().as_micros() as u64;
+            println!("[WORKER:{}] Received ack: {}", worker_name, response);
+            Ok(latency_us)
+        }
+        Ok(None) => {
+            // Channel closed
+            pending_acks.lock().await.remove(&trade.id);
+            Err(anyhow::anyhow!("Acknowledgment channel closed"))
+        }
+        Err(_) => {
+            // Timeout
+            pending_acks.lock().await.remove(&trade.id);
+            eprintln!("[WORKER:{}] Timeout waiting for acknowledgment (5s)", worker_name);
+            Err(anyhow::anyhow!("Acknowledgment timeout"))
+        }
     }
 }

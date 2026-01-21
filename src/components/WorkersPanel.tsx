@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { Worker } from '@/types/trading';
 import WorkerCard from './WorkerCard';
-import { Users, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Users, ChevronLeft, ChevronRight, Plus, PlayCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -47,6 +47,7 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
   const [addressError, setAddressError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [appVersion, setAppVersion] = useState<string>('');
+  const [isVideoDialogOpen, setIsVideoDialogOpen] = useState(false);
 
   const activeCount = workers.filter(w => w.status === 'active').length;
   const errorCount = workers.filter(w => w.status === 'error').length;
@@ -275,11 +276,45 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
 
           {appVersion && (
             <div className="mt-auto p-3 border-t border-border/50">
-              <p className="text-xs text-muted-foreground text-center">
-                <a href="https://trading-rocket.nl/" target='_blank'>Trading Rocket v{appVersion}</a>
-              </p>
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-muted-foreground text-center">
+                  <a href="https://trading-rocket.nl/" target='_blank'>Trading Rocket v{appVersion}</a>
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsVideoDialogOpen(true)}
+                  className="w-full text-xs h-7"
+                >
+                  <PlayCircle className="w-3 h-3 mr-1.5" />
+                  Setup Guide
+                </Button>
+              </div>
             </div>
           )}
+
+          <Dialog open={isVideoDialogOpen} onOpenChange={setIsVideoDialogOpen}>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>Project Setup Guide</DialogTitle>
+                <DialogDescription>
+                  Learn how to set up and configure this project.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="aspect-video w-full">
+                <iframe
+                  width="100%"
+                  height="100%"
+                  src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                  title="Setup Guide"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  className="rounded-md"
+                ></iframe>
+              </div>
+            </DialogContent>
+          </Dialog>
         </>
       )}
 
