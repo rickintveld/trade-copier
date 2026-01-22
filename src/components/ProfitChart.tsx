@@ -19,30 +19,9 @@ const CHART_COLORS = [
 ];
 
 const ProfitChart: React.FC<ProfitChartProps> = ({ balances }) => {
-  // Calculate Y-axis domain and ticks
-  const yAxisConfig = useMemo(() => {
-    if (balances.length === 0) return { min: 0, max: 100000, ticks: [] };
-    
-    const allBalances = balances.map(b => b.balance);
-    const minBalance = Math.min(...allBalances);
-    const maxBalance = Math.max(...allBalances);
-    
-    // Round down to nearest 10,000 for min
-    const min = Math.floor(minBalance / 10000) * 10000;
-    // Round up to nearest 10,000 for max
-    const max = Math.ceil(maxBalance / 10000) * 10000;
-    
-    // Generate ticks every 10,000
-    const ticks = [];
-    for (let i = min; i <= max; i += 10000) {
-      ticks.push(i);
-    }
-    
-    return { min, max, ticks };
-  }, [balances]);
   
-  // Group balances by worker and prepare data for chart
-  const chartData = useMemo(() => {
+  // Prepare per-worker chart data with individual Y-axis configs
+  const workerChartData = useMemo(() => {
     if (balances.length === 0) return [];
     
     // Group balances by worker
@@ -59,86 +38,44 @@ const ProfitChart: React.FC<ProfitChartProps> = ({ balances }) => {
       workerBalances.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
     });
     
-    // Find the maximum number of data points any worker has
-    let maxDataPoints = 0;
-    balancesByWorker.forEach((workerBalances) => {
-      maxDataPoints = Math.max(maxDataPoints, workerBalances.length);
-    });
-    
-    // Create data points for each index (trade number)
-    const data = [];
-    for (let i = 0; i < maxDataPoints; i++) {
-      const point: any = {
-        index: i,
-        label: `#${i + 1}`,
-      };
+    // Create data for each worker with optimized Y-axis
+    return Array.from(balancesByWorker.entries()).map(([workerId, workerBalances]) => {
+      const balanceValues = workerBalances.map(b => b.balance);
+      const minBalance = Math.min(...balanceValues);
+      const maxBalance = Math.max(...balanceValues);
       
-      // Add balance for each worker at this index
-      balancesByWorker.forEach((workerBalances, workerId) => {
-        if (i < workerBalances.length) {
-          const balance = workerBalances[i];
-          point[`worker_${workerId}`] = balance.balance;
-          point[`worker_${workerId}_date`] = format(balance.createdAt, 'MMM dd, yyyy');
-          point[`worker_${workerId}_time`] = format(balance.createdAt, 'HH:mm:ss');
-        } else if (i > 0 && workerBalances.length > 0) {
-          // Carry forward the last known balance
-          const lastBalance = workerBalances[workerBalances.length - 1];
-          point[`worker_${workerId}`] = lastBalance.balance;
-        }
-      });
+      // Calculate optimal Y-axis range
+      const range = maxBalance - minBalance;
+      const padding = range * 0.1; // 10% padding
+      const min = Math.floor((minBalance - padding) / 1000) * 1000;
+      const max = Math.ceil((maxBalance + padding) / 1000) * 1000;
       
-      data.push(point);
-    }
-    
-    return data;
-  }, [balances]);
-  
-  // Get unique workers for line rendering
-  const workers = useMemo(() => {
-    const workerMap = new Map<number, { id: number; name: string }>();
-    balances.forEach(balance => {
-      if (!workerMap.has(balance.workerId)) {
-        workerMap.set(balance.workerId, {
-          id: balance.workerId,
-          name: balance.workerName,
-        });
+      // Generate ticks
+      const tickCount = 6;
+      const tickInterval = (max - min) / (tickCount - 1);
+      const ticks = [];
+      for (let i = 0; i < tickCount; i++) {
+        ticks.push(Math.round(min + tickInterval * i));
       }
-    });
-    return Array.from(workerMap.values());
-  }, [balances]);
-  
-  // Calculate statistics per worker
-  const workerStats = useMemo(() => {
-    return workers.map((worker, idx) => {
-      const workerBalances = balances.filter(b => b.workerId === worker.id);
-      if (workerBalances.length === 0) return null;
       
-      const startBalance = workerBalances[0].balance;
-      const currentBalance = workerBalances[workerBalances.length - 1].balance;
-      const profit = currentBalance - startBalance;
-      const profitPercent = ((profit / startBalance) * 100).toFixed(2);
+      // Create chart data points
+      const data = workerBalances.map((balance, index) => ({
+        index,
+        label: `#${index + 1}`,
+        balance: balance.balance,
+        date: format(balance.createdAt, 'MMM dd, yyyy'),
+        time: format(balance.createdAt, 'HH:mm:ss'),
+      }));
       
       return {
-        workerName: worker.name,
-        startBalance: startBalance.toFixed(2),
-        currentBalance: currentBalance.toFixed(2),
-        profit: profit.toFixed(2),
-        profitPercent,
-        color: CHART_COLORS[idx % CHART_COLORS.length],
-      };
-    }).filter(Boolean);
-  }, [workers, balances]);
-  
-  const chartConfig = useMemo(() => {
-    const config: any = {};
-    workers.forEach((worker, idx) => {
-      config[`worker_${worker.id}`] = {
-        label: worker.name,
-        color: CHART_COLORS[idx % CHART_COLORS.length],
+        workerId,
+        workerName: workerBalances[0].workerName,
+        data,
+        yAxisConfig: { min, max, ticks },
       };
     });
-    return config;
-  }, [workers]);
+  }, [balances]);
+  
   
   if (balances.length === 0) {
     return (
@@ -156,103 +93,89 @@ const ProfitChart: React.FC<ProfitChartProps> = ({ balances }) => {
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto scrollbar-thin p-4">
-        <div className="grid grid-cols-1 gap-4 max-w-7xl mx-auto">
-          {/* Main Chart */}
-          <Card className="glass-card border-border/50">
-            <CardHeader>
-              <CardTitle className="text-lg">Account Balance</CardTitle>
-              <CardDescription>Track profit/loss for each connected account</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={chartConfig} className="h-[400px]">
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="label" 
-                    tick={{ fontSize: 12 }}
-                    label={{ value: 'Trade Number', position: 'insideBottom', offset: -5 }}
-                  />
-                  <YAxis 
-                    tick={{ fontSize: 12 }}
-                    tickFormatter={(value) => `$${value.toLocaleString()}`}
-                    domain={[yAxisConfig.min, yAxisConfig.max]}
-                    ticks={yAxisConfig.ticks}
-                  />
-                  <ChartTooltip 
-                    content={<ChartTooltipContent />}
-                    labelFormatter={(label, payload) => {
-                      if (payload && payload.length > 0) {
-                        // Show the trade number as the label
-                        return `Trade ${label}`;
-                      }
-                      return label;
-                    }}
-                    formatter={(value: any, name: string, props: any) => {
-                      // Show balance with date/time for each worker
-                      const workerId = name.replace('worker_', '');
-                      const date = props.payload[`worker_${workerId}_date`];
-                      const time = props.payload[`worker_${workerId}_time`];
-                      return [
-                        `$${parseFloat(value).toFixed(2)}`,
-                        date && time ? `${props.name} (${date} ${time})` : props.name
-                      ];
-                    }}
-                  />
-                  <ChartLegend content={<ChartLegendContent />} />
-                  {workers.map((worker, idx) => (
-                    <Line
-                      key={worker.id}
-                      type="monotone"
-                      dataKey={`worker_${worker.id}`}
-                      stroke={CHART_COLORS[idx % CHART_COLORS.length]}
-                      strokeWidth={2}
-                      dot={false}
-                      name={worker.name}
-                    />
-                  ))}
-                </LineChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-          
-          {/* Worker Statistics */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {workerStats.map((stat: any) => (
-              <Card key={stat.workerName} className="glass-card border-border/50">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-7xl mx-auto">
+          {/* Per-Worker Charts */}
+          {workerChartData.map((workerData, idx) => {
+            const chartConfig = {
+              balance: {
+                label: 'Balance',
+                color: CHART_COLORS[idx % CHART_COLORS.length],
+              },
+            };
+            
+            return (
+              <Card key={workerData.workerId} className="glass-card border-border/50">
                 <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
                     <div 
                       className="w-3 h-3 rounded-full" 
-                      style={{ backgroundColor: stat.color }}
+                      style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }}
                     />
-                    {stat.workerName}
+                    {workerData.workerName}
                   </CardTitle>
+                  <div className="space-y-2 pt-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Start Balance:</span>
+                      <span className="font-medium">${workerData.data[0].balance.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Current Balance:</span>
+                      <span className="font-medium">${workerData.data[workerData.data.length - 1].balance.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm border-t border-border/50 pt-2">
+                      <span className="text-muted-foreground">Profit/Loss:</span>
+                      <span 
+                        className={`font-bold ${
+                          (workerData.data[workerData.data.length - 1].balance - workerData.data[0].balance) >= 0 
+                            ? 'text-green-500' 
+                            : 'text-red-500'
+                        }`}
+                      >
+                        ${(workerData.data[workerData.data.length - 1].balance - workerData.data[0].balance).toFixed(2)} 
+                        ({(((workerData.data[workerData.data.length - 1].balance - workerData.data[0].balance) / workerData.data[0].balance) * 100).toFixed(2)}%)
+                      </span>
+                    </div>
+                  </div>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Start Balance:</span>
-                    <span className="font-medium">${stat.startBalance}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Current Balance:</span>
-                    <span className="font-medium">${stat.currentBalance}</span>
-                  </div>
-                  <div className="flex justify-between text-sm border-t border-border/50 pt-2">
-                    <span className="text-muted-foreground">Profit/Loss:</span>
-                    <span 
-                      className={`font-bold ${
-                        parseFloat(stat.profit) >= 0 
-                          ? 'text-green-500' 
-                          : 'text-red-500'
-                      }`}
-                    >
-                      ${stat.profit} ({stat.profitPercent}%)
-                    </span>
-                  </div>
+                <CardContent className="pt-6">
+                  <ChartContainer config={chartConfig} className="h-[300px]">
+                    <LineChart data={workerData.data}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis 
+                        dataKey="label" 
+                        tick={{ fontSize: 12 }}
+                        label={{ value: 'Trade Number', position: 'insideBottom', offset: -5 }}
+                      />
+                      <YAxis 
+                        tick={{ fontSize: 12 }}
+                        tickFormatter={(value) => `$${value.toLocaleString()}`}
+                        domain={[workerData.yAxisConfig.min, workerData.yAxisConfig.max]}
+                        ticks={workerData.yAxisConfig.ticks}
+                      />
+                      <ChartTooltip 
+                        content={<ChartTooltipContent />}
+                        labelFormatter={(label) => `Trade ${label}`}
+                        formatter={(value: any, name: string, props: any) => {
+                          return [
+                            `$${parseFloat(value).toFixed(2)}`,
+                            `${props.payload.date} ${props.payload.time}`
+                          ];
+                        }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="balance"
+                        stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        name="Balance"
+                      />
+                    </LineChart>
+                  </ChartContainer>
                 </CardContent>
               </Card>
-            ))}
-          </div>
+            );
+          })}
         </div>
       </div>
     </div>
