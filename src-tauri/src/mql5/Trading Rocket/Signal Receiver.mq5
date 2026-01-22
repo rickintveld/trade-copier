@@ -447,8 +447,7 @@ bool ParseAndExecuteTrade(string json_data)
       if(success)
       {
          SendAcknowledgment(true, "Partial close successful");
-         // Send updated account info after partial close
-         SendAccountInfo();
+         // Send updated account info after partial clos
       }
       else
       {
@@ -738,9 +737,6 @@ bool ConnectToWorker()
    Print("[RECEIVER] Connected to worker successfully (TCP)");
    g_connection_lost = false;
    g_last_recv_time = TimeLocal();
-   
-   // Send initial account info
-   SendAccountInfo();
 
    return true;
 }
