@@ -19,6 +19,28 @@ const CHART_COLORS = [
 ];
 
 const ProfitChart: React.FC<ProfitChartProps> = ({ balances }) => {
+  // Calculate Y-axis domain and ticks
+  const yAxisConfig = useMemo(() => {
+    if (balances.length === 0) return { min: 0, max: 100000, ticks: [] };
+    
+    const allBalances = balances.map(b => b.balance);
+    const minBalance = Math.min(...allBalances);
+    const maxBalance = Math.max(...allBalances);
+    
+    // Round down to nearest 10,000 for min
+    const min = Math.floor(minBalance / 10000) * 10000;
+    // Round up to nearest 10,000 for max
+    const max = Math.ceil(maxBalance / 10000) * 10000;
+    
+    // Generate ticks every 10,000
+    const ticks = [];
+    for (let i = min; i <= max; i += 10000) {
+      ticks.push(i);
+    }
+    
+    return { min, max, ticks };
+  }, [balances]);
+  
   // Group balances by worker and prepare data for chart
   const chartData = useMemo(() => {
     if (balances.length === 0) return [];
@@ -153,6 +175,8 @@ const ProfitChart: React.FC<ProfitChartProps> = ({ balances }) => {
                   <YAxis 
                     tick={{ fontSize: 12 }}
                     tickFormatter={(value) => `$${value.toLocaleString()}`}
+                    domain={[yAxisConfig.min, yAxisConfig.max]}
+                    ticks={yAxisConfig.ticks}
                   />
                   <ChartTooltip 
                     content={<ChartTooltipContent />}
