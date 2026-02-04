@@ -1,5 +1,6 @@
 import React from 'react';
 import { SystemMetrics } from '@/types/trading';
+import { formatUptime } from '@/lib/utils';
 import { 
   Radio, 
   Network, 
@@ -45,6 +46,8 @@ const MetricCard: React.FC<MetricCardProps> = ({
 );
 
 const MetricsPanel: React.FC<MetricsPanelProps> = ({ metrics, lastUpdate }) => {
+  const uptime = formatUptime(metrics.uptime);
+
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 p-4 bg-muted/10 border-b border-border/50">
       <div className="glass-card p-4 flex items-center gap-4 col-span-2 md:col-span-1">
@@ -97,8 +100,8 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ metrics, lastUpdate }) => {
       <MetricCard
         icon={<Clock className="w-5 h-5 text-primary" />}
         label="Uptime"
-        value={metrics.uptime}
-        suffix="/s"
+        value={uptime.value}
+        suffix={uptime.suffix}
       />
 
       <div className="glass-card p-4 flex items-center gap-4">

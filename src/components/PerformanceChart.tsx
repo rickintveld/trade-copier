@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Worker, Position, ErrorLog, SystemMetrics } from '@/types/trading';
+import { formatUptime } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell } from 'recharts';
@@ -172,7 +173,9 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
               </div>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Uptime</p>
-                <p className="text-2xl font-bold">{metrics.uptime}s</p>
+                <p className="text-2xl font-bold">
+                  {formatUptime(metrics.uptime).value}{formatUptime(metrics.uptime).suffix}
+                </p>
               </div>
             </div>
             
@@ -263,7 +266,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
         {/* Top Symbols */}
         <Card className="glass-card border-border/50">
           <CardHeader>
-            <CardTitle className="text-lg">Top Trading Symbols</CardTitle>
+            <CardTitle className="text-lg">Top Traded Symbols</CardTitle>
             <CardDescription>Most actively traded symbols</CardDescription>
           </CardHeader>
           <CardContent>

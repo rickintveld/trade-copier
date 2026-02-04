@@ -319,7 +319,7 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
                     : 'bg-status-inactive/20 text-status-inactive border border-status-inactive/30'
                 }`}
               >
-                {worker.name.slice(-2)}
+                {worker.port}
               </div>
               {worker.status === 'active' && (
                 <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-status-active animate-pulse" />

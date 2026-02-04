@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Position } from '@/types/trading';
-import { formatPrice, formatLots, formatRelativeTime } from '@/lib/formatters';
-import { ArrowUpRight, ArrowDownRight, Filter, Download, Crosshair, X } from 'lucide-react';
+import { formatPrice, formatLots, formatRelativeTime, formatDateTime } from '@/lib/formatters';
+import { ArrowUpRight, ArrowDownRight, Filter, Download, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { save } from '@tauri-apps/api/dialog';
@@ -193,7 +193,7 @@ const PositionTable: React.FC<PositionTableProps> = ({ positions, workers }) => 
                   {formatPrice(position.tp, position.symbol)}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
-                  {formatRelativeTime(position.openTime)}
+                  {formatDateTime(position.openTime)}
                 </TableCell>
               </TableRow>
             ))}
