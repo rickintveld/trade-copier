@@ -8,8 +8,9 @@ import PositionTable from '@/components/PositionTable';
 import ErrorLogPanel from '@/components/ErrorLogPanel';
 import PerformanceChart from '@/components/PerformanceChart';
 import ProfitChart from '@/components/ProfitChart';
+import EconomicCalendar from '@/components/EconomicCalendar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { TableProperties, AlertCircle, BarChart3, TrendingUp } from 'lucide-react';
+import { TableProperties, AlertCircle, BarChart3, TrendingUp, CalendarDays } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 
@@ -92,18 +93,25 @@ const Dashboard: React.FC = () => {
                   Signals
                 </TabsTrigger>
                 <TabsTrigger 
-                  value="performance"
-                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4"
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  Performance
-                </TabsTrigger>
-                <TabsTrigger 
                   value="profits"
                   className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4"
                 >
                   <TrendingUp className="w-4 h-4" />
                   Profits
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="calendar"
+                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4"
+                >
+                  <CalendarDays className="w-4 h-4" />
+                  Calendar
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="performance"
+                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none gap-2 px-4"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  Performance
                 </TabsTrigger>
                 <TabsTrigger 
                   value="errors"
@@ -143,6 +151,10 @@ const Dashboard: React.FC = () => {
 
             <TabsContent value="profits" className="flex-1 m-0 overflow-hidden">
               <ProfitChart balances={accountBalances} />
+            </TabsContent>
+
+            <TabsContent value="calendar" className="flex-1 m-0 overflow-hidden">
+              <EconomicCalendar />
             </TabsContent>
           </Tabs>
         </main>

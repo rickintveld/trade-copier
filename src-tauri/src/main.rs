@@ -145,6 +145,7 @@ async fn main() -> Result<()> {
             tauri_commands::get_dependency_status,
             tauri_commands::check_dependencies,
             tauri_commands::install_dependencies,
+            tauri_commands::fetch_economic_calendar,
         ])
         .setup(move |app| {
             info!("Tauri app initialized");

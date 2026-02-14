@@ -330,3 +330,34 @@ pub async fn install_dependencies(
         Err(e) => Err(e.to_string()),
     }
 }
+
+// Fetch economic calendar from FTMO API (bypasses CORS)
+#[tauri::command]
+pub async fn fetch_economic_calendar(
+    date_from: String,
+    date_to: String,
+) -> Result<ApiResponse<serde_json::Value>, String> {
+    let url = format!(
+        "https://gw2.ftmo.com/public-api/v1/economic-calendar?dateFrom={}&dateTo={}&timezone=Europe/Amsterdam&forceUnrestricted=false",
+        urlencoding::encode(&date_from),
+        urlencoding::encode(&date_to)
+    );
+
+    let client = reqwest::Client::new();
+    match client.get(&url).send().await {
+        Ok(response) => {
+            if response.status().is_success() {
+                match response.json::<serde_json::Value>().await {
+                    Ok(data) => Ok(ApiResponse {
+                        success: true,
+                        data,
+                    }),
+                    Err(e) => Err(format!("Failed to parse response: {}", e)),
+                }
+            } else {
+                Err(format!("API request failed with status: {}", response.status()))
+            }
+        }
+        Err(e) => Err(format!("Failed to fetch economic calendar: {}", e)),
+    }
+}
