@@ -1,82 +1,111 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { AccountBalance } from '@/types/trading';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
-import { format } from 'date-fns';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  isSameMonth,
+  addMonths,
+  subMonths,
+  startOfWeek,
+  endOfWeek,
+  isToday,
+} from 'date-fns';
+import { cn } from '@/lib/utils';
 
 interface ProfitChartProps {
   balances: AccountBalance[];
 }
 
-// Generate distinct colors for different workers
-const CHART_COLORS = [
-  'hsl(var(--chart-1))',
-  'hsl(var(--chart-2))',
-  'hsl(var(--chart-3))',
-  'hsl(var(--chart-4))',
-  'hsl(var(--chart-5))',
-];
+interface DayData {
+  date: Date;
+  trades: number;
+  profit: number;
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const ProfitChart: React.FC<ProfitChartProps> = ({ balances }) => {
-  
-  // Prepare per-worker chart data with individual Y-axis configs
-  const workerChartData = useMemo(() => {
-    if (balances.length === 0) return [];
-    
-    // Group balances by worker
-    const balancesByWorker = new Map<number, AccountBalance[]>();
-    balances.forEach(balance => {
-      if (!balancesByWorker.has(balance.workerId)) {
-        balancesByWorker.set(balance.workerId, []);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  // Calculate daily profit data by comparing balance changes
+  const dailyData = useMemo(() => {
+    if (balances.length === 0) return new Map<string, DayData>();
+
+    // Sort all balances by timestamp
+    const sortedBalances = [...balances].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+    );
+
+    // Track the last known balance for each worker to calculate daily profit
+    const workerLastBalance = new Map<number, number>();
+    const dailyMap = new Map<string, DayData>();
+
+    sortedBalances.forEach((balance) => {
+      const dateKey = format(balance.createdAt, 'yyyy-MM-dd');
+      const prevBalance = workerLastBalance.get(balance.workerId);
+      
+      // Calculate profit from this balance change
+      const profit = prevBalance !== undefined ? balance.balance - prevBalance : 0;
+      workerLastBalance.set(balance.workerId, balance.balance);
+
+      // Count as a trade if there's a balance change (profit/loss)
+      // This indicates a trade was closed
+      const isTradeEvent = profit !== 0;
+
+      if (!dailyMap.has(dateKey)) {
+        dailyMap.set(dateKey, {
+          date: new Date(dateKey),
+          trades: isTradeEvent ? 1 : 0,
+          profit: profit,
+        });
+      } else {
+        const existing = dailyMap.get(dateKey)!;
+        existing.trades += isTradeEvent ? 1 : 0;
+        existing.profit += profit;
       }
-      balancesByWorker.get(balance.workerId)!.push(balance);
     });
-    
-    // Sort each worker's balances by timestamp
-    balancesByWorker.forEach((workerBalances) => {
-      workerBalances.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-    });
-    
-    // Create data for each worker with optimized Y-axis
-    return Array.from(balancesByWorker.entries()).map(([workerId, workerBalances]) => {
-      const balanceValues = workerBalances.map(b => b.balance);
-      const minBalance = Math.min(...balanceValues);
-      const maxBalance = Math.max(...balanceValues);
-      
-      // Calculate optimal Y-axis range
-      const range = maxBalance - minBalance;
-      const padding = range * 0.1; // 10% padding
-      const min = Math.floor((minBalance - padding) / 1000) * 1000;
-      const max = Math.ceil((maxBalance + padding) / 1000) * 1000;
-      
-      // Generate ticks
-      const tickCount = 6;
-      const tickInterval = (max - min) / (tickCount - 1);
-      const ticks = [];
-      for (let i = 0; i < tickCount; i++) {
-        ticks.push(Math.round(min + tickInterval * i));
-      }
-      
-      // Create chart data points
-      const data = workerBalances.map((balance, index) => ({
-        index,
-        label: `#${index + 1}`,
-        balance: balance.balance,
-        date: format(balance.createdAt, 'MMM dd, yyyy'),
-        time: format(balance.createdAt, 'HH:mm:ss'),
-      }));
-      
-      return {
-        workerId,
-        workerName: workerBalances[0].workerName,
-        data,
-        yAxisConfig: { min, max, ticks },
-      };
-    });
+
+    return dailyMap;
   }, [balances]);
-  
-  
+
+  // Get calendar days for the current month view
+  const calendarDays = useMemo(() => {
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(currentMonth);
+    const calendarStart = startOfWeek(monthStart);
+    const calendarEnd = endOfWeek(monthEnd);
+
+    return eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+  }, [currentMonth]);
+
+  // Calculate monthly totals
+  const monthlyTotals = useMemo(() => {
+    let totalTrades = 0;
+    let totalProfit = 0;
+
+    calendarDays.forEach((day) => {
+      if (isSameMonth(day, currentMonth)) {
+        const dateKey = format(day, 'yyyy-MM-dd');
+        const dayData = dailyData.get(dateKey);
+        if (dayData) {
+          totalTrades += dayData.trades;
+          totalProfit += dayData.profit;
+        }
+      }
+    });
+
+    return { totalTrades, totalProfit };
+  }, [calendarDays, currentMonth, dailyData]);
+
+  const goToPreviousMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
+  const goToNextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
+  const goToToday = () => setCurrentMonth(new Date());
+
   if (balances.length === 0) {
     return (
       <div className="flex flex-col h-full items-center justify-center p-8">
@@ -89,94 +118,149 @@ const ProfitChart: React.FC<ProfitChartProps> = ({ balances }) => {
       </div>
     );
   }
-  
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto scrollbar-thin p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-7xl mx-auto">
-          {/* Per-Worker Charts */}
-          {workerChartData.map((workerData, idx) => {
-            const chartConfig = {
-              balance: {
-                label: 'Balance',
-                color: CHART_COLORS[idx % CHART_COLORS.length],
-              },
-            };
-            
-            return (
-              <Card key={workerData.workerId} className="glass-card border-border/50">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <div 
-                      className="w-3 h-3 rounded-full" 
-                      style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }}
-                    />
-                    {workerData.workerName}
-                  </CardTitle>
-                  <div className="space-y-2 pt-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Start Balance:</span>
-                      <span className="font-medium">${workerData.data[0].balance.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Current Balance:</span>
-                      <span className="font-medium">${workerData.data[workerData.data.length - 1].balance.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm border-t border-border/50 pt-2">
-                      <span className="text-muted-foreground">Profit/Loss:</span>
-                      <span 
-                        className={`font-bold ${
-                          (workerData.data[workerData.data.length - 1].balance - workerData.data[0].balance) >= 0 
-                            ? 'text-green-500' 
-                            : 'text-red-500'
-                        }`}
+        <Card className="glass-card border-border/50 max-w-6xl mx-auto">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xl">Profit Calendar</CardTitle>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={goToPreviousMonth}
+                  className="h-8 w-8"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToToday}
+                  className="h-8 px-3"
+                >
+                  Today
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={goToNextMonth}
+                  className="h-8 w-8"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-lg font-medium">
+                {format(currentMonth, 'MMMM yyyy')}
+              </span>
+              <div className="flex gap-4 text-sm">
+                <span className="text-muted-foreground">
+                  Trades: <span className="font-medium text-foreground">{monthlyTotals.totalTrades}</span>
+                </span>
+                <span className="text-muted-foreground">
+                  Profit:{' '}
+                  <span
+                    className={cn(
+                      'font-medium',
+                      monthlyTotals.totalProfit >= 0 ? 'text-green-500' : 'text-red-500'
+                    )}
+                  >
+                    ${monthlyTotals.totalProfit.toFixed(2)}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {/* Weekday headers */}
+            <div className="grid grid-cols-7 mb-2">
+              {WEEKDAYS.map((day) => (
+                <div
+                  key={day}
+                  className="text-center text-sm font-medium text-muted-foreground py-2"
+                >
+                  {day}
+                </div>
+              ))}
+            </div>
+
+            {/* Calendar grid */}
+            <div className="grid grid-cols-7 gap-1">
+              {calendarDays.map((day) => {
+                const dateKey = format(day, 'yyyy-MM-dd');
+                const dayData = dailyData.get(dateKey);
+                const isCurrentMonth = isSameMonth(day, currentMonth);
+                const isDayToday = isToday(day);
+                const hasData = dayData && (dayData.trades > 0 || dayData.profit !== 0);
+                const isProfit = dayData && dayData.profit > 0;
+                const isLoss = dayData && dayData.profit < 0;
+
+                return (
+                  <div
+                    key={dateKey}
+                    className={cn(
+                      'min-h-[100px] p-3 rounded-md border transition-colors',
+                      !isCurrentMonth && 'opacity-30',
+                      isDayToday && 'ring-2 ring-primary',
+                      hasData && isProfit && 'bg-green-500/20 border-green-500/50',
+                      hasData && isLoss && 'bg-red-500/20 border-red-500/50',
+                      !hasData && 'border-border/50 bg-card/50'
+                    )}
+                  >
+                    <div className="flex flex-col h-full">
+                      <span
+                        className={cn(
+                          'text-base font-medium',
+                          !isCurrentMonth && 'text-muted-foreground',
+                          isDayToday && 'text-primary'
+                        )}
                       >
-                        ${(workerData.data[workerData.data.length - 1].balance - workerData.data[0].balance).toFixed(2)} 
-                        ({(((workerData.data[workerData.data.length - 1].balance - workerData.data[0].balance) / workerData.data[0].balance) * 100).toFixed(2)}%)
+                        {format(day, 'd')}
                       </span>
+                      {hasData && isCurrentMonth && (
+                        <div className="mt-auto space-y-1">
+                          <div className="text-sm text-muted-foreground">
+                            {dayData.trades} trade{dayData.trades !== 1 ? 's' : ''}
+                          </div>
+                          <div
+                            className={cn(
+                              'text-sm font-semibold',
+                              isProfit && 'text-green-500',
+                              isLoss && 'text-red-500'
+                            )}
+                          >
+                            {dayData.profit >= 0 ? '+' : ''}
+                            ${dayData.profit.toFixed(2)}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <ChartContainer config={chartConfig} className="h-[300px]">
-                    <LineChart data={workerData.data}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="label" 
-                        tick={{ fontSize: 12 }}
-                        label={{ value: 'Trade Number', position: 'insideBottom', offset: -5 }}
-                      />
-                      <YAxis 
-                        tick={{ fontSize: 12 }}
-                        tickFormatter={(value) => `$${value.toLocaleString()}`}
-                        domain={[workerData.yAxisConfig.min, workerData.yAxisConfig.max]}
-                        ticks={workerData.yAxisConfig.ticks}
-                      />
-                      <ChartTooltip 
-                        content={<ChartTooltipContent />}
-                        labelFormatter={(label) => `Trade ${label}`}
-                        formatter={(value: any, name: string, props: any) => {
-                          return [
-                            `$${parseFloat(value).toFixed(2)}`,
-                            `${props.payload.date} ${props.payload.time}`
-                          ];
-                        }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="balance"
-                        stroke={CHART_COLORS[idx % CHART_COLORS.length]}
-                        strokeWidth={2}
-                        dot={{ r: 3 }}
-                        name="Balance"
-                      />
-                    </LineChart>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+
+            {/* Legend */}
+            <div className="flex items-center justify-center gap-6 mt-4 pt-4 border-t border-border/50">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-green-500/20 border border-green-500/50" />
+                <span className="text-sm text-muted-foreground">Profit</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-red-500/20 border border-red-500/50" />
+                <span className="text-sm text-muted-foreground">Loss</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded border-2 border-primary" />
+                <span className="text-sm text-muted-foreground">Today</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

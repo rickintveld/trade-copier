@@ -395,7 +395,7 @@ const EconomicCalendar: React.FC = () => {
             variant={selectedDate === null ? 'default' : 'outline'}
             size="sm"
             onClick={() => setSelectedDate(null)}
-            className="min-w-[60px]"
+            className="flex flex-col items-center min-w-[60px] h-auto py-1.5 relative"
           >
             All
           </Button>
