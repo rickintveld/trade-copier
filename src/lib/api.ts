@@ -65,16 +65,12 @@ export interface ApiSystemMetrics {
   created_at: string;
 }
 
-export interface ApiAccountBalance {
+export interface ApiProfit {
   id: number;
   worker_id: number;
   worker_name: string;
   worker_address: string;
-  balance: number;
-  equity: number;
-  margin: number | null;
-  event_type: string;
-  trade_id: number | null;
+  profit: number;
   created_at: string;
 }
 
@@ -135,8 +131,8 @@ export const tradeCopierApi = {
     await tauriInvoke('delete_instance', { id: workerId, force: true });
   },
 
-  async getAccountBalanceHistory(workerId?: number, limit?: number): Promise<ApiAccountBalance[]> {
-    const response = await tauriInvoke<ApiAccountBalance[]>('get_account_balance_history', { 
+  async getProfitHistory(workerId?: number, limit?: number): Promise<ApiProfit[]> {
+    const response = await tauriInvoke<ApiProfit[]>('get_profit_history', { 
       worker_id: workerId || null, 
       limit: limit || 1000 
     });

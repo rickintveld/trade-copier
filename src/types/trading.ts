@@ -76,15 +76,11 @@ export interface SystemMetrics {
   providerConnected: boolean;
 }
 
-export interface AccountBalance {
+export interface Profit {
   id: number;
   workerId: number;
   workerName: string;
   workerAddress: string;
-  balance: number;
-  equity: number;
-  margin: number | null;
-  eventType: string;
-  tradeId: number | null;
+  profit: number;
   createdAt: Date;
 }

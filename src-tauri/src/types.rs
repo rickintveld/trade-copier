@@ -48,10 +48,8 @@ impl SlaveConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountInfo {
-    pub balance: f64,
-    pub equity: f64,
-    pub margin: Option<f64>,
+pub struct ProfitInfo {
+    pub profit: f64,
 }
 
 #[cfg(test)]

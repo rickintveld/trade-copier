@@ -86,17 +86,17 @@ pub async fn get_system_metrics(state: State<'_, AppState>) -> Result<ApiRespons
     }
 }
 
-// Get account balance history
+// Get profit history
 #[tauri::command]
-pub async fn get_account_balance_history(
+pub async fn get_profit_history(
     state: State<'_, AppState>,
     worker_id: Option<i64>,
     limit: Option<i64>,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
-    match state.db.get_account_balance_history(worker_id, limit).await {
-        Ok(balances) => Ok(ApiResponse {
+    match state.db.get_profit_history(worker_id, limit).await {
+        Ok(profits) => Ok(ApiResponse {
             success: true,
-            data: serde_json::to_value(balances).map_err(|e| e.to_string())?,
+            data: serde_json::to_value(profits).map_err(|e| e.to_string())?,
         }),
         Err(e) => Err(e.to_string()),
     }

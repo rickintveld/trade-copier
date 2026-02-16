@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use std::path::{Path, PathBuf};
 use socket2::{Socket, TcpKeepalive};
 use crate::database::{Database, WorkerState, ErrorSeverity};
-use crate::types::{Trade, SlaveConfig, AccountInfo};
+use crate::types::{Trade, SlaveConfig, ProfitInfo};
 use std::collections::HashMap;
 
 pub async fn run_worker(
@@ -622,10 +622,10 @@ async fn process_mt5_message(
     db: &Arc<Database>,
     address: &str,
 ) {
-    // Check if it's account info (JSON with balance field)
-    if message.starts_with('{') && message.contains("balance") {
-        // Process as account info
-        process_account_info(worker_name, message, db, address).await;
+    // Check if it's profit info (JSON with profit field)
+    if message.starts_with('{') && message.contains("profit") {
+        // Process as profit info
+        process_profit_info(worker_name, message, db, address).await;
     } else if message.starts_with("OK:") || message.starts_with("ERROR:") {
         // This is an acknowledgment - try to match it to a pending trade
         // For now, just forward to any waiting receiver
@@ -645,35 +645,31 @@ async fn process_mt5_message(
     }
 }
 
-/// Process incoming ACCOUNT_INFO message from MT5
-async fn process_account_info(
+/// Process incoming profit message from MT5
+async fn process_profit_info(
     worker_name: &str,
     message: &str,
     db: &Arc<Database>,
     address: &str,
 ) {
-    // Try to parse as AccountInfo
-    match serde_json::from_str::<AccountInfo>(message) {
-        Ok(account_info) => {
+    // Try to parse as ProfitInfo
+    match serde_json::from_str::<ProfitInfo>(message) {
+        Ok(profit_info) => {
             println!(
-                "[WORKER:{}] Received account info: balance={}, equity={}",
-                worker_name, account_info.balance, account_info.equity
+                "[WORKER:{}] Received profit: {}",
+                worker_name, profit_info.profit
             );
             
-            // Store account balance in database
-            if let Err(e) = db.insert_account_balance(
+            // Store profit in database
+            if let Err(e) = db.insert_profit(
                 address,
-                account_info.balance,
-                account_info.equity,
-                account_info.margin,
-                "update",  // Event type: could be 'initial' or 'update'
-                None,
+                profit_info.profit,
             ).await {
-                eprintln!("[WORKER:{}] Failed to save account balance: {}", worker_name, e);
+                eprintln!("[WORKER:{}] Failed to save profit: {}", worker_name, e);
             }
         }
         Err(e) => {
-            eprintln!("[WORKER:{}] Failed to parse account info: {}", worker_name, e);
+            eprintln!("[WORKER:{}] Failed to parse profit info: {}", worker_name, e);
         }
     }
 }

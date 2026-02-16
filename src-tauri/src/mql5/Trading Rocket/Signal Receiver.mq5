@@ -37,7 +37,7 @@ int FindTradeIdIndex(ulong trade_id);
 void AddPositionMapping(ulong trade_id, ulong ticket);
 void RemovePositionMapping(ulong trade_id);
 void SendAcknowledgment(bool success, string message);
-void SendAccountInfo();
+void SendProfit(double profit);
 
 // Order tracking helper functions
 int FindOrderTradeIdIndex(ulong trade_id);
@@ -142,11 +142,17 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       {
          ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
          
-         // If this is an exit deal (position closed), send account info
+         // If this is an exit deal (position closed), send profit
          if(entry == DEAL_ENTRY_OUT)
          {
-            Print("[RECEIVER] Position closed (SL/TP/Manual), sending account info");
-            SendAccountInfo();
+            // Get the profit from the closed deal (includes commission and swap)
+            double dealProfit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
+            double dealCommission = HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+            double dealSwap = HistoryDealGetDouble(trans.deal, DEAL_SWAP);
+            double totalProfit = dealProfit + dealCommission + dealSwap;
+            
+            Print("[RECEIVER] Position closed - Profit: ", dealProfit, ", Commission: ", dealCommission, ", Swap: ", dealSwap, ", Total: ", totalProfit);
+            SendProfit(totalProfit);
          }
       }
    }
@@ -410,8 +416,7 @@ bool ParseAndExecuteTrade(string json_data)
       {
          RemovePositionMapping(trade_id);
          SendAcknowledgment(true, "Trade closed successfully");
-         // Send updated account info after closing trade
-         SendAccountInfo();
+         // Note: Profit is sent via OnTradeTransaction when deal completes
       }
       else
       {
@@ -854,21 +859,15 @@ void RemoveOrderMapping(ulong trade_id)
 }
 
 //+------------------------------------------------------------------+
-//| Send account information to Rust worker                          |
+//| Send profit information to Rust worker                           |
 //+------------------------------------------------------------------+
-void SendAccountInfo()
+void SendProfit(double profit)
 {
    if(!EnsureConnection())
       return;
    
-   // Get account information
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-   double margin = AccountInfoDouble(ACCOUNT_MARGIN);
-   
    // Format as JSON
-   string json = StringFormat("{\"balance\":%.2f,\"equity\":%.2f,\"margin\":%.2f}\n",
-                              balance, equity, margin);
+   string json = StringFormat("{\"profit\":%.2f}\n", profit);
    
    // Convert to bytes
    uchar data[];
@@ -879,16 +878,16 @@ void SendAccountInfo()
    
    if(sent > 0)
    {
-      Print("[RECEIVER] Account info sent: balance=", balance, ", equity=", equity);
+      Print("[RECEIVER] Profit sent: ", profit);
    }
    else
    {
       int error = GetLastError();
-      Print("[RECEIVER] ERROR: Failed to send account info, error: ", error);
+      Print("[RECEIVER] ERROR: Failed to send profit, error: ", error);
       if(error == 5273 || error == 5274 || error == 4014) // Network errors
       {
          Print("[RECEIVER] Connection lost. Will attempt reconnect.");
-      g_connection_lost = true;
+         g_connection_lost = true;
          g_last_recv_time = 0;
       }
    }

@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 
 const Dashboard: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { workers, positions, errors, metrics, accountBalances, isConnected, lastUpdate } = useTradingData();
+  const { workers, positions, errors, metrics, profits, isConnected, lastUpdate } = useTradingData();
   const { status: dependencyStatus } = useDependencyStatus();
   const previousErrorsRef = React.useRef<typeof errors>([]);
 
@@ -150,7 +150,7 @@ const Dashboard: React.FC = () => {
             </TabsContent>
 
             <TabsContent value="profits" className="flex-1 m-0 overflow-hidden">
-              <ProfitChart balances={accountBalances} />
+              <ProfitChart profits={profits} />
             </TabsContent>
 
             <TabsContent value="calendar" className="flex-1 m-0 overflow-hidden">

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AccountBalance } from '@/types/trading';
+import { Profit } from '@/types/trading';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -18,7 +18,7 @@ import {
 import { cn } from '@/lib/utils';
 
 interface ProfitChartProps {
-  balances: AccountBalance[];
+  profits: Profit[];
 }
 
 interface DayData {
@@ -29,49 +29,33 @@ interface DayData {
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const ProfitChart: React.FC<ProfitChartProps> = ({ balances }) => {
+const ProfitChart: React.FC<ProfitChartProps> = ({ profits }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
-  // Calculate daily profit data by comparing balance changes
+  // Calculate daily profit data from profit records
   const dailyData = useMemo(() => {
-    if (balances.length === 0) return new Map<string, DayData>();
+    if (profits.length === 0) return new Map<string, DayData>();
 
-    // Sort all balances by timestamp
-    const sortedBalances = [...balances].sort(
-      (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
-    );
-
-    // Track the last known balance for each worker to calculate daily profit
-    const workerLastBalance = new Map<number, number>();
     const dailyMap = new Map<string, DayData>();
 
-    sortedBalances.forEach((balance) => {
-      const dateKey = format(balance.createdAt, 'yyyy-MM-dd');
-      const prevBalance = workerLastBalance.get(balance.workerId);
-      
-      // Calculate profit from this balance change
-      const profit = prevBalance !== undefined ? balance.balance - prevBalance : 0;
-      workerLastBalance.set(balance.workerId, balance.balance);
-
-      // Count as a trade if there's a balance change (profit/loss)
-      // This indicates a trade was closed
-      const isTradeEvent = profit !== 0;
+    profits.forEach((profitRecord) => {
+      const dateKey = format(profitRecord.createdAt, 'yyyy-MM-dd');
 
       if (!dailyMap.has(dateKey)) {
         dailyMap.set(dateKey, {
           date: new Date(dateKey),
-          trades: isTradeEvent ? 1 : 0,
-          profit: profit,
+          trades: 1,
+          profit: profitRecord.profit,
         });
       } else {
         const existing = dailyMap.get(dateKey)!;
-        existing.trades += isTradeEvent ? 1 : 0;
-        existing.profit += profit;
+        existing.trades += 1;
+        existing.profit += profitRecord.profit;
       }
     });
 
     return dailyMap;
-  }, [balances]);
+  }, [profits]);
 
   // Get calendar days for the current month view
   const calendarDays = useMemo(() => {
@@ -106,13 +90,13 @@ const ProfitChart: React.FC<ProfitChartProps> = ({ balances }) => {
   const goToNextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
   const goToToday = () => setCurrentMonth(new Date());
 
-  if (balances.length === 0) {
+  if (profits.length === 0) {
     return (
       <div className="flex flex-col h-full items-center justify-center p-8">
         <div className="text-center space-y-2">
-          <p className="text-lg text-muted-foreground">No account balance data available</p>
+          <p className="text-lg text-muted-foreground">No profit data available</p>
           <p className="text-sm text-muted-foreground">
-            Connect a MetaTrader 5 account to start tracking balance
+            Profits will appear here when trades are closed
           </p>
         </div>
       </div>

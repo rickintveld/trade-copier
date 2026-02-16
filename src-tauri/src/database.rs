@@ -212,29 +212,25 @@ impl Database {
                 [],
             )?;
             
-            // Create account_balances table for tracking account balance history
+            // Create profits table for tracking trade profits
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS account_balances (
+                "CREATE TABLE IF NOT EXISTS profits (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     worker_id INTEGER NOT NULL,
-                    balance REAL NOT NULL,
-                    equity REAL NOT NULL,
-                    margin REAL,
-                    event_type TEXT NOT NULL,
-                    trade_id INTEGER,
+                    profit REAL NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
                 )",
                 [],
             )?;
             
-            // Create indexes for account_balances table
+            // Create indexes for profits table
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_account_balances_worker_id ON account_balances(worker_id)",
+                "CREATE INDEX IF NOT EXISTS idx_profits_worker_id ON profits(worker_id)",
                 [],
             )?;
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_account_balances_created_at ON account_balances(created_at)",
+                "CREATE INDEX IF NOT EXISTS idx_profits_created_at ON profits(created_at)",
                 [],
             )?;
             
@@ -817,18 +813,13 @@ impl Database {
         Ok(result)
     }
     
-    /// Insert account balance snapshot
-    pub async fn insert_account_balance(
+    /// Insert a profit record
+    pub async fn insert_profit(
         &self,
         address: &str,
-        balance: f64,
-        equity: f64,
-        margin: Option<f64>,
-        event_type: &str,
-        trade_id: Option<i64>,
+        profit: f64,
     ) -> Result<()> {
         let address = address.to_string();
-        let event_type = event_type.to_string();
         
         self.conn.call(move |conn| {
             // First, get the worker_id from the address
@@ -838,11 +829,11 @@ impl Database {
                 |row| row.get(0),
             )?;
             
-            // Insert the account balance snapshot
+            // Insert the profit record
             conn.execute(
-                "INSERT INTO account_balances (worker_id, balance, equity, margin, event_type, trade_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![worker_id, balance, equity, margin, &event_type, trade_id],
+                "INSERT INTO profits (worker_id, profit)
+                 VALUES (?1, ?2)",
+                rusqlite::params![worker_id, profit],
             )?;
             Ok(())
         }).await?;
@@ -850,33 +841,33 @@ impl Database {
         Ok(())
     }
     
-    /// Get account balance history for all workers or a specific worker
-    pub async fn get_account_balance_history(
+    /// Get profit history for all workers or a specific worker
+    pub async fn get_profit_history(
         &self,
         worker_id: Option<i64>,
         limit: Option<i64>,
-    ) -> Result<Vec<AccountBalanceRecord>> {
+    ) -> Result<Vec<ProfitRecord>> {
         let limit = limit.unwrap_or(1000);
         
         let result = self.conn.call(move |conn| {
             let query = if let Some(wid) = worker_id {
                 format!(
-                    "SELECT ab.id, ab.worker_id, w.name as worker_name, w.address as worker_address,
-                            ab.balance, ab.equity, ab.margin, ab.event_type, ab.trade_id, ab.created_at
-                     FROM account_balances ab
-                     JOIN workers w ON ab.worker_id = w.id
-                     WHERE ab.worker_id = {}
-                     ORDER BY ab.created_at ASC
+                    "SELECT p.id, p.worker_id, w.name as worker_name, w.address as worker_address,
+                            p.profit, p.created_at
+                     FROM profits p
+                     JOIN workers w ON p.worker_id = w.id
+                     WHERE p.worker_id = {}
+                     ORDER BY p.created_at ASC
                      LIMIT {}",
                     wid, limit
                 )
             } else {
                 format!(
-                    "SELECT ab.id, ab.worker_id, w.name as worker_name, w.address as worker_address,
-                            ab.balance, ab.equity, ab.margin, ab.event_type, ab.trade_id, ab.created_at
-                     FROM account_balances ab
-                     JOIN workers w ON ab.worker_id = w.id
-                     ORDER BY ab.created_at ASC
+                    "SELECT p.id, p.worker_id, w.name as worker_name, w.address as worker_address,
+                            p.profit, p.created_at
+                     FROM profits p
+                     JOIN workers w ON p.worker_id = w.id
+                     ORDER BY p.created_at ASC
                      LIMIT {}",
                     limit
                 )
@@ -884,22 +875,18 @@ impl Database {
             
             let mut stmt = conn.prepare(&query)?;
             
-            let balances = stmt.query_map([], |row| {
-                Ok(AccountBalanceRecord {
+            let profits = stmt.query_map([], |row| {
+                Ok(ProfitRecord {
                     id: row.get(0)?,
                     worker_id: row.get(1)?,
                     worker_name: row.get(2)?,
                     worker_address: row.get(3)?,
-                    balance: row.get(4)?,
-                    equity: row.get(5)?,
-                    margin: row.get(6)?,
-                    event_type: row.get(7)?,
-                    trade_id: row.get(8)?,
-                    created_at: row.get(9)?,
+                    profit: row.get(4)?,
+                    created_at: row.get(5)?,
                 })
             })?.collect::<Result<Vec<_>, _>>()?;
             
-            Ok(balances)
+            Ok(profits)
         }).await?;
         
         Ok(result)
@@ -1001,15 +988,11 @@ pub struct SystemDependenciesRecord {
 }
 
 #[derive(Debug, Serialize)]
-pub struct AccountBalanceRecord {
+pub struct ProfitRecord {
     pub id: i64,
     pub worker_id: i64,
     pub worker_name: String,
     pub worker_address: String,
-    pub balance: f64,
-    pub equity: f64,
-    pub margin: Option<f64>,
-    pub event_type: String,
-    pub trade_id: Option<i64>,
+    pub profit: f64,
     pub created_at: String,
 }
