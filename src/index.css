@@ -12,25 +12,25 @@
 
 @layer base {
   :root {
-    --background: 222 47% 6%;
+    --background: 0 0% 12%;
     --foreground: 210 40% 98%;
 
-    --card: 222 47% 8%;
+    --card: 0 0% 14%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 222 47% 10%;
+    --popover: 0 0% 16%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 187 85% 53%;
-    --primary-foreground: 222 47% 6%;
+    --primary: 210 99% 51%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 217 33% 17%;
+    --secondary: 0 0% 17%;
     --secondary-foreground: 210 40% 98%;
 
-    --muted: 217 33% 14%;
-    --muted-foreground: 215 20% 55%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 55%;
 
-    --accent: 217 33% 20%;
+    --accent: 0 0% 20%;
     --accent-foreground: 210 40% 98%;
 
     --destructive: 0 72% 51%;
@@ -40,11 +40,11 @@
     --success-foreground: 210 40% 98%;
 
     --warning: 38 92% 50%;
-    --warning-foreground: 222 47% 6%;
+    --warning-foreground: 0 0% 12%;
 
-    --border: 217 33% 18%;
-    --input: 217 33% 18%;
-    --ring: 187 85% 53%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 210 99% 51%;
 
     --radius: 0.5rem;
 
@@ -62,25 +62,25 @@
     --status-warning: 38 92% 50%;
 
     /* Gradients */
-    --gradient-card: linear-gradient(135deg, hsl(222 47% 9%) 0%, hsl(222 47% 7%) 100%);
-    --gradient-glow: radial-gradient(ellipse at center, hsl(187 85% 53% / 0.15) 0%, transparent 70%);
+    --gradient-card: linear-gradient(135deg, hsl(0 0% 15%) 0%, hsl(0 0% 13%) 100%);
+    --gradient-glow: radial-gradient(ellipse at center, hsl(210 99% 51% / 0.15) 0%, transparent 70%);
 
     /* Shadows */
     --shadow-card: 0 4px 24px -4px hsl(0 0% 0% / 0.4);
-    --shadow-glow: 0 0 40px hsl(187 85% 53% / 0.2);
+    --shadow-glow: 0 0 40px hsl(210 99% 51% / 0.2);
 
     /* Sidebar */
-    --sidebar-background: 222 47% 7%;
+    --sidebar-background: 0 0% 10%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 187 85% 53%;
-    --sidebar-primary-foreground: 222 47% 6%;
-    --sidebar-accent: 217 33% 17%;
+    --sidebar-primary: 210 99% 51%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 17%;
     --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 16%;
-    --sidebar-ring: 187 85% 53%;
+    --sidebar-border: 0 0% 16%;
+    --sidebar-ring: 210 99% 51%;
 
     /* Chart colors */
-    --chart-1: 187 85% 53%;
+    --chart-1: 210 99% 51%;
     --chart-2: 142 76% 46%;
     --chart-3: 0 72% 51%;
     --chart-4: 38 92% 50%;
@@ -88,7 +88,7 @@
   }
 
   .dark {
-    --background: 222 47% 6%;
+    --background: 0 0% 12%;
     --foreground: 210 40% 98%;
   }
 }
