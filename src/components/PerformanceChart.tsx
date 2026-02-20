@@ -142,7 +142,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto scrollbar-thin p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-8xl mx-auto">
         {/* System Metrics Card */}
         <Card className="glass-card border-border/50">
           <CardHeader>

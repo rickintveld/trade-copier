@@ -106,7 +106,7 @@ const ProfitChart: React.FC<ProfitChartProps> = ({ profits }) => {
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto scrollbar-thin p-4">
-        <Card className="glass-card border-border/50 max-w-6xl mx-auto">
+        <Card className="glass-card border-border/50 max-w-8xl mx-auto">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-xl">Profit Calendar</CardTitle>
