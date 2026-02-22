@@ -23,26 +23,15 @@ bool g_connection_lost = false;
 datetime g_last_recv_time = 0;
 string g_receive_buffer = "";  // Buffer for incomplete messages
 
-// Position tracking: maps trade_id to position ticket
-ulong g_trade_ids[];
-ulong g_position_tickets[];
-int g_tracking_count = 0;
-
-ulong g_order_trade_ids[];
-ulong g_order_tickets[];
-int g_order_tracking_count = 0;
+// Comment prefix used to link slave positions to master position IDs
+string COMMENT_PREFIX = "TC_";
 
 // Helper functions
-int FindTradeIdIndex(ulong trade_id);
-void AddPositionMapping(ulong trade_id, ulong ticket);
-void RemovePositionMapping(ulong trade_id);
+ulong FindPositionByMasterID(ulong master_id);
+ulong FindOrderByMasterID(ulong master_id);
+string BuildComment(ulong master_id);
 void SendAcknowledgment(bool success, string message);
 void SendProfit(double profit);
-
-// Order tracking helper functions
-int FindOrderTradeIdIndex(ulong trade_id);
-void AddOrderMapping(ulong trade_id, ulong ticket);
-void RemoveOrderMapping(ulong trade_id);
 
 // Connection management
 bool ConnectToWorker();
@@ -57,15 +46,6 @@ void DrawStatusIndicator();
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // Initialize tracking arrays
-   ArrayResize(g_trade_ids, 0);
-   ArrayResize(g_position_tickets, 0);
-   g_tracking_count = 0;
-   
-   ArrayResize(g_order_trade_ids, 0);
-   ArrayResize(g_order_tickets, 0);
-   g_order_tracking_count = 0;
-   
    g_connection_lost = false;
    g_last_recv_time = 0;
    
@@ -287,14 +267,15 @@ bool ParseAndExecuteTrade(string json_data)
       }
 
       ulong ticket = 0;
+      string comment = BuildComment(trade_id);
       
       // Check if this is a pending order or market order
       if(order_type == "market")
       {
-         // Execute market order
+         // Execute market order with master ID in comment
          if(trade_type == "buy")
          {
-            success = trade.Buy(lots, symbol, 0, sl, tp, "CopiedTrade");
+            success = trade.Buy(lots, symbol, 0, sl, tp, comment);
             if(!success)
             {
                Print("[RECEIVER] ERROR: BUY failed - ", trade.ResultRetcodeDescription());
@@ -302,7 +283,7 @@ bool ParseAndExecuteTrade(string json_data)
          }
          else if(trade_type == "sell")
          {
-            success = trade.Sell(lots, symbol, 0, sl, tp, "CopiedTrade");
+            success = trade.Sell(lots, symbol, 0, sl, tp, comment);
             if(!success)
             {
                Print("[RECEIVER] ERROR: SELL failed - ", trade.ResultRetcodeDescription());
@@ -315,32 +296,11 @@ bool ParseAndExecuteTrade(string json_data)
             return false;
          }
          
-        // Handle ticket result for market orders
-        if(success)
-        {
-            // Select position directly by symbol
-            if(PositionSelect(symbol))
-            {
-                ticket = PositionGetInteger(POSITION_TICKET);
-                
-                if(ticket > 0)
-                {
-                    Print("[RECEIVER] Position opened: ticket=", ticket);
-                    AddPositionMapping(trade_id, ticket);
-                    SendAcknowledgment(true, "Market order opened successfully");
-                }
-                else
-                {
-                    Print("[RECEIVER] ERROR: Invalid position ticket");
-                    SendAcknowledgment(false, "Got invalid position ticket");
-                }
-            }
-            else
-            {
-                Print("[RECEIVER] WARNING: Position not found after opening (timing issue, will auto-discover on modify)");
-                SendAcknowledgment(true, "Position opened but not immediately available");
-            }
-        }
+         if(success)
+         {
+            Print("[RECEIVER] Market order opened with comment: ", comment);
+            SendAcknowledgment(true, "Market order opened successfully");
+         }
          else
          {
             SendAcknowledgment(false, "Failed to open market order");
@@ -348,7 +308,7 @@ bool ParseAndExecuteTrade(string json_data)
       }
       else
       {
-         // Place pending order
+         // Place pending order with master ID in comment
          if(price <= 0)
          {
             Print("[RECEIVER] ERROR: Price required for pending orders");
@@ -358,19 +318,19 @@ bool ParseAndExecuteTrade(string json_data)
          
          if(order_type == "buy_limit")
          {
-            success = trade.BuyLimit(lots, price, symbol, sl, tp, ORDER_TIME_GTC, 0, "CopiedOrder");
+            success = trade.BuyLimit(lots, price, symbol, sl, tp, ORDER_TIME_GTC, 0, comment);
          }
          else if(order_type == "sell_limit")
          {
-            success = trade.SellLimit(lots, price, symbol, sl, tp, ORDER_TIME_GTC, 0, "CopiedOrder");
+            success = trade.SellLimit(lots, price, symbol, sl, tp, ORDER_TIME_GTC, 0, comment);
          }
          else if(order_type == "buy_stop")
          {
-            success = trade.BuyStop(lots, price, symbol, sl, tp, ORDER_TIME_GTC, 0, "CopiedOrder");
+            success = trade.BuyStop(lots, price, symbol, sl, tp, ORDER_TIME_GTC, 0, comment);
          }
          else if(order_type == "sell_stop")
          {
-            success = trade.SellStop(lots, price, symbol, sl, tp, ORDER_TIME_GTC, 0, "CopiedOrder");
+            success = trade.SellStop(lots, price, symbol, sl, tp, ORDER_TIME_GTC, 0, comment);
          }
          else
          {
@@ -380,17 +340,8 @@ bool ParseAndExecuteTrade(string json_data)
          
          if(success)
          {
-            ticket = trade.ResultOrder();
-            
-            if(ticket > 0)
-            {
-               AddOrderMapping(trade_id, ticket);
-               SendAcknowledgment(true, "Pending order placed successfully");
-            }
-            else
-            {
-               SendAcknowledgment(false, "Failed to get order ticket");
-            }
+            Print("[RECEIVER] Pending order placed with comment: ", comment);
+            SendAcknowledgment(true, "Pending order placed successfully");
          }
          else
          {
@@ -402,19 +353,18 @@ bool ParseAndExecuteTrade(string json_data)
    }
    else if(cmd == "close")
    {
-      int idx = FindTradeIdIndex(trade_id);
+      ulong ticket = FindPositionByMasterID(trade_id);
 
-      if(idx < 0) 
+      if(ticket == 0) 
       {
-         SendAcknowledgment(false, "Trade ID not found");
-
+         Print("[RECEIVER] ERROR: No position found with comment ", BuildComment(trade_id));
+         SendAcknowledgment(false, "Position not found for master ID");
          return false;
       }
 
-      success = trade.PositionClose(g_position_tickets[idx]);
+      success = trade.PositionClose(ticket);
       if(success)
       {
-         RemovePositionMapping(trade_id);
          SendAcknowledgment(true, "Trade closed successfully");
          // Note: Profit is sent via OnTradeTransaction when deal completes
       }
@@ -427,32 +377,27 @@ bool ParseAndExecuteTrade(string json_data)
    }
    else if(cmd == "partial_close")
    {
-      int idx = FindTradeIdIndex(trade_id);
+      ulong ticket = FindPositionByMasterID(trade_id);
 
-      if(idx < 0) 
+      if(ticket == 0) 
       {
-         SendAcknowledgment(false, "Trade ID not found");
-         
+         Print("[RECEIVER] ERROR: No position found with comment ", BuildComment(trade_id));
+         SendAcknowledgment(false, "Position not found for master ID");
          return false;
       }
-
-      ulong ticket = g_position_tickets[idx];
 
       if(!PositionSelectByTicket(ticket))
       {
-         RemovePositionMapping(trade_id);
          SendAcknowledgment(false, "Position not found");
-
          return false;
       }
 
-      // Partial close: close specified volume, keep position mapping
+      // Partial close: close specified volume
       success = trade.PositionClosePartial(ticket, lots);
 
       if(success)
       {
          SendAcknowledgment(true, "Partial close successful");
-         // Send updated account info after partial clos
       }
       else
       {
@@ -465,40 +410,18 @@ bool ParseAndExecuteTrade(string json_data)
    {
       Print("[RECEIVER] Modifying position: SL=", sl, " TP=", tp, " (ID: ", trade_id, ")");
       
-      int idx = FindTradeIdIndex(trade_id);
+      ulong ticket = FindPositionByMasterID(trade_id);
 
-      if(idx < 0) 
+      if(ticket == 0) 
       {
-         // Try to auto-discover position by symbol
-         if(PositionSelect(symbol))
-         {
-            ulong ticket = PositionGetInteger(POSITION_TICKET);
-            Print("[RECEIVER] Auto-discovered position: ticket=", ticket);
-            
-            AddPositionMapping(trade_id, ticket);
-            idx = FindTradeIdIndex(trade_id);
-            
-            if(idx < 0)
-            {
-               Print("[RECEIVER] ERROR: Failed to add position to tracking");
-               SendAcknowledgment(false, "Failed to add position to tracking");
-               return false;
-            }
-         }
-         else
-         {
-            Print("[RECEIVER] ERROR: Position not found for ", symbol);
-            SendAcknowledgment(false, "Position not found");
-            return false;
-         }
+         Print("[RECEIVER] ERROR: No position found with comment ", BuildComment(trade_id));
+         SendAcknowledgment(false, "Position not found for master ID");
+         return false;
       }
-
-      ulong ticket = g_position_tickets[idx];
 
       if(!PositionSelectByTicket(ticket))
       {
          Print("[RECEIVER] ERROR: Position not found with ticket ", ticket);
-         RemovePositionMapping(trade_id);
          SendAcknowledgment(false, "Position not found");
          return false;
       }
@@ -519,20 +442,18 @@ bool ParseAndExecuteTrade(string json_data)
    }
    else if(cmd == "cancel")
    {
-      int idx = FindOrderTradeIdIndex(trade_id);
+      ulong order_ticket = FindOrderByMasterID(trade_id);
       
-      if(idx < 0)
+      if(order_ticket == 0)
       {
-         SendAcknowledgment(false, "Order ID not found");
+         Print("[RECEIVER] ERROR: No order found with comment ", BuildComment(trade_id));
+         SendAcknowledgment(false, "Order not found for master ID");
          return false;
       }
-      
-      ulong order_ticket = g_order_tickets[idx];
       
       success = trade.OrderDelete(order_ticket);
       if(success)
       {
-         RemoveOrderMapping(trade_id);
          SendAcknowledgment(true, "Order cancelled successfully");
       }
       else
@@ -660,52 +581,57 @@ bool ExtractJSONString(string json, string field_name, string &value)
 }
 
 //+------------------------------------------------------------------+
-//| Position tracking helper functions                               |
+//| Build comment string from master ID                              |
 //+------------------------------------------------------------------+
-int FindTradeIdIndex(ulong trade_id)
+string BuildComment(ulong master_id)
 {
-   for(int i = 0; i < g_tracking_count; i++)
-   {
-      if(g_trade_ids[i] == trade_id)
-         return i;
-   }
-
-   return -1;
+   return COMMENT_PREFIX + IntegerToString(master_id);
 }
 
-void AddPositionMapping(ulong trade_id, ulong ticket)
+//+------------------------------------------------------------------+
+//| Find slave position by master ID stored in comment               |
+//| Returns position ticket, or 0 if not found                       |
+//+------------------------------------------------------------------+
+ulong FindPositionByMasterID(ulong master_id)
 {
-   int idx = FindTradeIdIndex(trade_id);
-
-   if(idx >= 0)
+   string target_comment = BuildComment(master_id);
+   int total = PositionsTotal();
+   
+   for(int i = 0; i < total; i++)
    {
-      g_position_tickets[idx] = ticket;
-      return;
+      ulong ticket = PositionGetTicket(i);
+      if(ticket > 0)
+      {
+         string comment = PositionGetString(POSITION_COMMENT);
+         if(StringFind(comment, target_comment) >= 0)
+            return ticket;
+      }
    }
-
-   g_tracking_count++;
-   ArrayResize(g_trade_ids, g_tracking_count);
-   ArrayResize(g_position_tickets, g_tracking_count);
-   g_trade_ids[g_tracking_count - 1] = trade_id;
-   g_position_tickets[g_tracking_count - 1] = ticket;
+   
+   return 0;
 }
 
-void RemovePositionMapping(ulong trade_id)
+//+------------------------------------------------------------------+
+//| Find slave pending order by master ID stored in comment          |
+//| Returns order ticket, or 0 if not found                          |
+//+------------------------------------------------------------------+
+ulong FindOrderByMasterID(ulong master_id)
 {
-   int idx = FindTradeIdIndex(trade_id);
-
-   if(idx < 0) return;
-
-   for(int i = idx; i < g_tracking_count - 1; i++)
+   string target_comment = BuildComment(master_id);
+   int total = OrdersTotal();
+   
+   for(int i = 0; i < total; i++)
    {
-      g_trade_ids[i] = g_trade_ids[i + 1];
-      g_position_tickets[i] = g_position_tickets[i + 1];
+      ulong ticket = OrderGetTicket(i);
+      if(ticket > 0)
+      {
+         string comment = OrderGetString(ORDER_COMMENT);
+         if(StringFind(comment, target_comment) >= 0)
+            return ticket;
+      }
    }
-
-   g_tracking_count--;
-
-   ArrayResize(g_trade_ids, g_tracking_count);
-   ArrayResize(g_position_tickets, g_tracking_count);
+   
+   return 0;
 }
 
 //+------------------------------------------------------------------+
@@ -810,53 +736,6 @@ void SendAcknowledgment(bool success, string message)
    }
 }
 
-//+------------------------------------------------------------------+
-//| Order tracking helper functions                                 |
-//+------------------------------------------------------------------+
-int FindOrderTradeIdIndex(ulong trade_id)
-{
-   for(int i = 0; i < g_order_tracking_count; i++)
-   {
-      if(g_order_trade_ids[i] == trade_id)
-         return i;
-   }
-   return -1;
-}
-
-void AddOrderMapping(ulong trade_id, ulong ticket)
-{
-   int idx = FindOrderTradeIdIndex(trade_id);
-   
-   if(idx >= 0)
-   {
-      g_order_tickets[idx] = ticket;
-      return;
-   }
-   
-   g_order_tracking_count++;
-   ArrayResize(g_order_trade_ids, g_order_tracking_count);
-   ArrayResize(g_order_tickets, g_order_tracking_count);
-   g_order_trade_ids[g_order_tracking_count - 1] = trade_id;
-   g_order_tickets[g_order_tracking_count - 1] = ticket;
-}
-
-void RemoveOrderMapping(ulong trade_id)
-{
-   int idx = FindOrderTradeIdIndex(trade_id);
-   
-   if(idx < 0) return;
-   
-   for(int i = idx; i < g_order_tracking_count - 1; i++)
-   {
-      g_order_trade_ids[i] = g_order_trade_ids[i + 1];
-      g_order_tickets[i] = g_order_tickets[i + 1];
-   }
-   
-   g_order_tracking_count--;
-   
-   ArrayResize(g_order_trade_ids, g_order_tracking_count);
-   ArrayResize(g_order_tickets, g_order_tracking_count);
-}
 
 //+------------------------------------------------------------------+
 //| Send profit information to Rust worker                           |

@@ -16,13 +16,12 @@ int socketHandle = INVALID_SOCKET;
 bool g_connection_lost = false;
 datetime g_last_send_time = 0;
 
-// Position tracking: maps position ticket to trade_id
+// Position tracking for modify detection (survives via rebuild on init)
 ulong g_position_tickets[];
-ulong g_trade_ids[];
 int g_tracking_count = 0;
 
+// Pending order tracking
 ulong g_order_tickets[];
-ulong g_order_trade_ids[];
 string g_order_symbols[];
 int g_order_tracking_count = 0;
 
@@ -35,13 +34,14 @@ PositionState g_position_states[];
 
 // Helper functions for position tracking
 int FindPositionIndex(ulong ticket);
-void AddPositionTracking(ulong ticket, ulong trade_id, double sl, double tp);
+void AddPositionTracking(ulong ticket, double sl, double tp);
 void RemovePositionTracking(ulong ticket);
 void CheckPositionModifications();
+void RebuildPositionTracking();
 
 // Helper functions for pending order tracking
 int FindOrderIndex(ulong ticket);
-void AddOrderTracking(ulong ticket, ulong trade_id, string symbol);
+void AddOrderTracking(ulong ticket, string symbol);
 void RemoveOrderTracking(ulong ticket);
 string GetOrderTypeString(ENUM_ORDER_TYPE order_type);
 
@@ -60,12 +60,10 @@ int OnInit()
 {
    // Initialize tracking arrays
    ArrayResize(g_position_tickets, 0);
-   ArrayResize(g_trade_ids, 0);
    ArrayResize(g_position_states, 0);
    g_tracking_count = 0;
    
    ArrayResize(g_order_tickets, 0);
-   ArrayResize(g_order_trade_ids, 0);
    ArrayResize(g_order_symbols, 0);
    g_order_tracking_count = 0;
    
@@ -74,6 +72,9 @@ int OnInit()
    
    Print("[SENDER] Trade Copier Master EA started");
    Print("[SENDER] Sending signals to ", RouterIP, ":", RouterPort);
+   
+   // Rebuild position tracking from existing open positions (survives EA restart)
+   RebuildPositionTracking();
    
    // Try initial connection, but don't fail if router is unavailable
    if(!ConnectToRouter())
@@ -152,15 +153,14 @@ void OnTradeTransaction(
             double sl = OrderGetDouble(ORDER_SL);
             double tp = OrderGetDouble(ORDER_TP);
             
-            // Generate unique trade ID and track order
-            ulong trade_id = (ulong)TimeLocal() * 1000000 + order_ticket;
-            AddOrderTracking(order_ticket, trade_id, symbol);
+            // Use order ticket directly as ID and track order
+            AddOrderTracking(order_ticket, symbol);
             
             // Determine trade type (buy or sell)
             string trade_type = (order_type == ORDER_TYPE_BUY_LIMIT || order_type == ORDER_TYPE_BUY_STOP) ? "buy" : "sell";
             
-            // Build and send pending order signal
-            string json = "{\"id\":" + IntegerToString(trade_id) + 
+            // Build and send pending order signal (order_ticket is the ID)
+            string json = "{\"id\":" + IntegerToString(order_ticket) + 
                          ",\"symbol\":\"" + symbol + 
                          "\",\"type\":\"" + trade_type + 
                          "\",\"lots\":" + DoubleToString(lots, 2) + 
@@ -195,7 +195,7 @@ void OnTradeTransaction(
          // Only send cancel signal if order was not filled (manually cancelled or expired)
          if(!was_filled)
          {
-            string json = "{\"id\":" + IntegerToString(g_order_trade_ids[idx]) + 
+            string json = "{\"id\":" + IntegerToString(order_ticket) + 
                          ",\"symbol\":\"" + g_order_symbols[idx] + "\"" +
                          ",\"lots\":0" +
                          ",\"cmd\":\"cancel\"}";
@@ -232,12 +232,11 @@ void OnTradeTransaction(
                   tp = PositionGetDouble(POSITION_TP);
                }
                
-               // Generate unique trade ID and track position
-               ulong trade_id = (ulong)TimeLocal() * 1000000 + deal_ticket;
-               AddPositionTracking(position_ticket, trade_id, sl, tp);
+               // Track position using its ticket (no synthetic ID needed)
+               AddPositionTracking(position_ticket, sl, tp);
                
-               // Build and send open signal
-               string json = "{\"id\":" + IntegerToString(trade_id) + 
+               // Build and send open signal (position_ticket is the ID)
+               string json = "{\"id\":" + IntegerToString(position_ticket) + 
                             ",\"symbol\":\"" + symbol + 
                             "\",\"type\":\"" + ((deal_type == DEAL_TYPE_BUY) ? "buy" : "sell") + 
                             "\",\"lots\":" + DoubleToString(lots, 2) + 
@@ -260,8 +259,8 @@ void OnTradeTransaction(
                   bool is_partial_close = PositionSelectByTicket(position_ticket);
                   string cmd = is_partial_close ? "partial_close" : "close";
                   
-                  // Build and send close signal with actual closed volume
-                  string json = "{\"id\":" + IntegerToString(g_trade_ids[idx]) + 
+                  // Build and send close signal (position_ticket is the ID)
+                  string json = "{\"id\":" + IntegerToString(position_ticket) + 
                                ",\"symbol\":\"" + symbol + 
                                "\",\"lots\":" + DoubleToString(lots, 2) + 
                                ",\"cmd\":\"" + cmd + "\"}";
@@ -301,8 +300,8 @@ void CheckPositionModifications()
       g_position_states[i].sl = current_sl;
       g_position_states[i].tp = current_tp;
       
-      // Build and send modify signal
-      string json = "{\"id\":" + IntegerToString(g_trade_ids[i]) + 
+      // Build and send modify signal (position_ticket is the ID)
+      string json = "{\"id\":" + IntegerToString(g_position_tickets[i]) + 
                     ",\"symbol\":\"" + PositionGetString(POSITION_SYMBOL) + 
                     "\",\"type\":\"" + ((PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "buy" : "sell") + 
                     "\",\"lots\":" + DoubleToString(PositionGetDouble(POSITION_VOLUME), 2);
@@ -363,19 +362,20 @@ int FindPositionIndex(ulong ticket)
    return -1;
 }
 
-void AddPositionTracking(ulong ticket, ulong trade_id, double sl, double tp)
+void AddPositionTracking(ulong ticket, double sl, double tp)
 {
+   // Don't add duplicates
+   if(FindPositionIndex(ticket) >= 0) return;
+   
    g_tracking_count++;
    ArrayResize(g_position_tickets, g_tracking_count);
-   ArrayResize(g_trade_ids, g_tracking_count);
    ArrayResize(g_position_states, g_tracking_count);
    
    g_position_tickets[g_tracking_count - 1] = ticket;
-   g_trade_ids[g_tracking_count - 1] = trade_id;
    g_position_states[g_tracking_count - 1].sl = sl;
    g_position_states[g_tracking_count - 1].tp = tp;
    
-   Print("[SENDER] Tracking position: ticket=", ticket, " trade_id=", trade_id);
+   Print("[SENDER] Tracking position: ticket=", ticket);
 }
 
 void RemovePositionTracking(ulong ticket)
@@ -389,13 +389,31 @@ void RemovePositionTracking(ulong ticket)
    for(int i = idx; i < g_tracking_count; i++)
    {
       g_position_tickets[i] = g_position_tickets[i + 1];
-      g_trade_ids[i] = g_trade_ids[i + 1];
       g_position_states[i] = g_position_states[i + 1];
    }
    
    ArrayResize(g_position_tickets, g_tracking_count);
-   ArrayResize(g_trade_ids, g_tracking_count);
    ArrayResize(g_position_states, g_tracking_count);
+}
+
+//+------------------------------------------------------------------+
+//| Rebuild position tracking from existing open positions            |
+//| Called on init to survive EA restarts                             |
+//+------------------------------------------------------------------+
+void RebuildPositionTracking()
+{
+   int total = PositionsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket > 0)
+      {
+         double sl = PositionGetDouble(POSITION_SL);
+         double tp = PositionGetDouble(POSITION_TP);
+         AddPositionTracking(ticket, sl, tp);
+      }
+   }
+   Print("[SENDER] Rebuilt tracking for ", g_tracking_count, " existing positions");
 }
 
 //+------------------------------------------------------------------+
@@ -468,18 +486,19 @@ int FindOrderIndex(ulong ticket)
    return -1;
 }
 
-void AddOrderTracking(ulong ticket, ulong trade_id, string symbol)
+void AddOrderTracking(ulong ticket, string symbol)
 {
+   // Don't add duplicates
+   if(FindOrderIndex(ticket) >= 0) return;
+   
    g_order_tracking_count++;
    ArrayResize(g_order_tickets, g_order_tracking_count);
-   ArrayResize(g_order_trade_ids, g_order_tracking_count);
    ArrayResize(g_order_symbols, g_order_tracking_count);
    
    g_order_tickets[g_order_tracking_count - 1] = ticket;
-   g_order_trade_ids[g_order_tracking_count - 1] = trade_id;
    g_order_symbols[g_order_tracking_count - 1] = symbol;
    
-   Print("[SENDER] Tracking pending order: ticket=", ticket, " trade_id=", trade_id, " symbol=", symbol);
+   Print("[SENDER] Tracking pending order: ticket=", ticket, " symbol=", symbol);
 }
 
 void RemoveOrderTracking(ulong ticket)
@@ -493,12 +512,10 @@ void RemoveOrderTracking(ulong ticket)
    for(int i = idx; i < g_order_tracking_count; i++)
    {
       g_order_tickets[i] = g_order_tickets[i + 1];
-      g_order_trade_ids[i] = g_order_trade_ids[i + 1];
       g_order_symbols[i] = g_order_symbols[i + 1];
    }
    
    ArrayResize(g_order_tickets, g_order_tracking_count);
-   ArrayResize(g_order_trade_ids, g_order_tracking_count);
    ArrayResize(g_order_symbols, g_order_tracking_count);
 }
 

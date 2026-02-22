@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Worker } from '@/types/trading';
 import { formatLatency } from '@/lib/formatters';
 import { tradeCopierApi } from '@/lib/api';
@@ -14,6 +14,16 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
   const [isStopping, setIsStopping] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const previousStatus = useRef(worker.status);
+
+  useEffect(() => {
+    if (previousStatus.current !== worker.status) {
+      setIsStarting(false);
+      setIsRestarting(false);
+      setIsStopping(false);
+      previousStatus.current = worker.status;
+    }
+  }, [worker.status]);
 
   const handleStart = async (force: boolean = false) => {
     if (force) {
@@ -27,7 +37,6 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
       if (import.meta.env.DEV) {
         console.error('Failed to start worker:', error);
       }
-    } finally {
       setIsStarting(false);
       setIsRestarting(false);
     }
@@ -41,7 +50,6 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
       if (import.meta.env.DEV) {
         console.error('Failed to stop worker:', error);
       }
-    } finally {
       setIsStopping(false);
     }
   };
