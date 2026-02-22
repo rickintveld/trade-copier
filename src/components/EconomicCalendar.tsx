@@ -191,7 +191,19 @@ const CurrencyFlag: React.FC<{ currency: string }> = ({ currency }) => {
   );
 };
 
+const isEventPast = (event: EconomicEvent): boolean => {
+  const now = new Date();
+  if (event.eventType === 'all-day') {
+    const eventDate = new Date(event.date);
+    const endOfDay = new Date(eventDate);
+    endOfDay.setHours(23, 59, 59, 999);
+    return endOfDay < now;
+  }
+  return new Date(event.date) < now;
+};
+
 const EventCard: React.FC<{ event: EconomicEvent }> = ({ event }) => {
+  const isPast = isEventPast(event);
   const getValueColor = (actual: string | null, forecast: string | null, previous: string | null) => {
     if (!actual) return null;
     
@@ -218,10 +230,13 @@ const EventCard: React.FC<{ event: EconomicEvent }> = ({ event }) => {
 
   return (
     <div className={cn(
-      'group relative px-4 py-3 rounded-lg border transition-all hover:bg-card/80',
-      event.restriction 
+      'group relative px-4 py-3 rounded-lg border transition-all',
+      isPast
+        ? 'opacity-40 border-border/30 bg-card/20'
+        : 'hover:bg-card/80',
+      !isPast && event.restriction 
         ? 'border-red-500/30 bg-red-500/5' 
-        : 'border-border/50 bg-card/50'
+        : !isPast && 'border-border/50 bg-card/50'
     )}>
       <div className="flex items-center gap-4">
         {/* Time */}
