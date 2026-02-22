@@ -26,13 +26,15 @@ interface ApiResponse {
 }
 
 const getWeekDates = (date: Date = new Date()) => {
+  const isSunday = date.getDay() === 0;
   const day = date.getDay();
   const diff = date.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(date.setDate(diff));
   monday.setHours(0, 0, 0, 0);
 
+  const totalDays = isSunday ? 8 : 7; // Include next Monday on Sundays
   const days: Date[] = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < totalDays; i++) {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
     days.push(d);
@@ -306,7 +308,7 @@ const EconomicCalendar: React.FC = () => {
       setError(null);
 
       const startDate = weekDates[0];
-      const endDate = weekDates[6];
+      const endDate = weekDates[weekDates.length - 1];
 
       const dateFrom = formatDateForApi(startDate);
       const dateTo = formatDateForApi(endDate, true);
