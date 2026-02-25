@@ -125,13 +125,42 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
          // If this is an exit deal (position closed), send profit
          if(entry == DEAL_ENTRY_OUT)
          {
-            // Get the profit from the closed deal (includes commission and swap)
+            // Get the profit from the closed deal
             double dealProfit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
-            double dealCommission = HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+            double closeCommission = HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
             double dealSwap = HistoryDealGetDouble(trans.deal, DEAL_SWAP);
-            double totalProfit = dealProfit + dealCommission + dealSwap;
             
-            Print("[RECEIVER] Position closed - Profit: ", dealProfit, ", Commission: ", dealCommission, ", Swap: ", dealSwap, ", Total: ", totalProfit);
+            // Commissions are charged on both entry and exit deals.
+            // Look up the opening deal via the position ID to include its commission.
+            long positionId = HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID);
+            double openCommission = 0.0;
+            
+            if(positionId > 0 && HistorySelectByPosition(positionId))
+            {
+               int totalDeals = HistoryDealsTotal();
+               for(int i = 0; i < totalDeals; i++)
+               {
+                  ulong dealTicket = HistoryDealGetTicket(i);
+                  if(dealTicket > 0 && dealTicket != trans.deal)
+                  {
+                     ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+                     if(dealEntry == DEAL_ENTRY_IN)
+                     {
+                        openCommission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+                        break;
+                     }
+                  }
+               }
+            }
+            
+            double totalCommission = openCommission + closeCommission;
+            double totalProfit = dealProfit + totalCommission + dealSwap;
+            
+            Print("[RECEIVER] Position closed - Profit: ", dealProfit,
+                  ", Open Commission: ", openCommission,
+                  ", Close Commission: ", closeCommission,
+                  ", Swap: ", dealSwap,
+                  ", Total: ", totalProfit);
             SendProfit(totalProfit);
          }
       }

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use tokio::sync::{broadcast, watch, mpsc};
-use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use std::sync::Arc;
 use std::time::{Instant, Duration};
 use tokio::sync::Mutex;
@@ -551,6 +551,12 @@ async fn read_mt5_messages(
 ) {
     println!("[WORKER:{}] MT5 message reader started", worker_name);
     
+    // Persistent buffer to avoid data loss between reads.
+    // Previously a new BufReader was created each iteration, which could
+    // silently discard data buffered from the TCP stream (e.g. a profit
+    // message arriving right after an ACK in the same segment).
+    let mut recv_buffer = String::new();
+    
     loop {
         tokio::select! {
             _ = shutdown_rx.changed() => {
@@ -560,54 +566,75 @@ async fn read_mt5_messages(
                 }
             }
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                // Try to read from connection if available
-                let mut conn_guard = connection.lock().await;
+                // Collect complete messages while holding the lock, then
+                // process them after releasing it.
+                let mut messages: Vec<String> = Vec::new();
+                let mut connection_closed = false;
+                let mut read_error: Option<std::io::Error> = None;
                 
-                if let Some(stream) = conn_guard.as_mut() {
-                    // Use a non-blocking read with timeout
-                    let mut reader = BufReader::new(stream);
-                    let mut line = String::new();
+                {
+                    let mut conn_guard = connection.lock().await;
                     
-                    // Try to read a line with a short timeout
-                    match tokio::time::timeout(
-                        Duration::from_millis(500),
-                        reader.read_line(&mut line)
-                    ).await {
-                        Ok(Ok(0)) => {
-                            // Connection closed
-                            println!("[WORKER:{}] MT5 connection closed", worker_name);
-                            *conn_guard = None;
-                            
-                            if let Err(e) = db.update_mt5_connected(&address, false).await {
-                                eprintln!("[WORKER:{}] Failed to update mt5_connected: {}", worker_name, e);
+                    if let Some(stream) = conn_guard.as_mut() {
+                        let mut buf = [0u8; 4096];
+                        
+                        match tokio::time::timeout(
+                            Duration::from_millis(500),
+                            stream.read(&mut buf)
+                        ).await {
+                            Ok(Ok(0)) => {
+                                // Connection closed
+                                connection_closed = true;
+                                *conn_guard = None;
                             }
-                        }
-                        Ok(Ok(_)) => {
-                            // Got a message
-                            let message = line.trim();
-                            if !message.is_empty() {
-                                process_mt5_message(
-                                    &worker_name,
-                                    message,
-                                    &pending_acks,
-                                    &db,
-                                    &address,
-                                ).await;
+                            Ok(Ok(n)) => {
+                                recv_buffer.push_str(&String::from_utf8_lossy(&buf[..n]));
+                                
+                                // Extract all complete newline-delimited messages
+                                while let Some(pos) = recv_buffer.find('\n') {
+                                    let line = recv_buffer[..pos].trim().to_string();
+                                    recv_buffer = recv_buffer[pos + 1..].to_string();
+                                    if !line.is_empty() {
+                                        messages.push(line);
+                                    }
+                                }
                             }
-                        }
-                        Ok(Err(e)) => {
-                            // Read error
-                            eprintln!("[WORKER:{}] Read error from MT5: {}", worker_name, e);
-                            *conn_guard = None;
-                            
-                            if let Err(e) = db.update_mt5_connected(&address, false).await {
-                                eprintln!("[WORKER:{}] Failed to update mt5_connected: {}", worker_name, e);
+                            Ok(Err(e)) => {
+                                read_error = Some(e);
+                                *conn_guard = None;
                             }
-                        }
-                        Err(_) => {
-                            // Timeout - no data available, continue loop
+                            Err(_) => {
+                                // Timeout - no data available
+                            }
                         }
                     }
+                } // lock released
+                
+                if connection_closed {
+                    println!("[WORKER:{}] MT5 connection closed", worker_name);
+                    recv_buffer.clear();
+                    if let Err(e) = db.update_mt5_connected(&address, false).await {
+                        eprintln!("[WORKER:{}] Failed to update mt5_connected: {}", worker_name, e);
+                    }
+                }
+                
+                if let Some(e) = read_error {
+                    eprintln!("[WORKER:{}] Read error from MT5: {}", worker_name, e);
+                    recv_buffer.clear();
+                    if let Err(e) = db.update_mt5_connected(&address, false).await {
+                        eprintln!("[WORKER:{}] Failed to update mt5_connected: {}", worker_name, e);
+                    }
+                }
+                
+                // Process all collected messages outside the connection lock
+                for msg in &messages {
+                    process_mt5_message(
+                        &worker_name,
+                        msg,
+                        &pending_acks,
+                        &db,
+                        &address,
+                    ).await;
                 }
             }
         }
