@@ -158,7 +158,7 @@ const PositionTable: React.FC<PositionTableProps> = ({ positions, workers }) => 
               <TableHead className="text-muted-foreground text-xs font-semibold text-right">Lots</TableHead>
               <TableHead className="text-muted-foreground text-xs font-semibold text-right">SL</TableHead>
               <TableHead className="text-muted-foreground text-xs font-semibold text-right">TP</TableHead>
-              <TableHead className="text-muted-foreground text-xs font-semibold">Age</TableHead>
+              <TableHead className="text-muted-foreground text-xs font-semibold">Time</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

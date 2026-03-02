@@ -94,7 +94,7 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ metrics, lastUpdate }) => {
         icon={<Gauge className="w-5 h-5 text-warning" />}
         label="Avg Latency"
         value={metrics.avgLatency}
-        suffix="ms"
+        suffix="μs"
       />
 
       <MetricCard

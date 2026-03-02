@@ -30,5 +30,25 @@ export default defineConfig(({ mode }) => ({
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     // Produce sourcemaps for debug builds
     sourcemap: !!process.env.TAURI_DEBUG,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom", "react-router-dom"],
+          "vendor-radix": [
+            "@radix-ui/react-accordion",
+            "@radix-ui/react-alert-dialog",
+            "@radix-ui/react-dialog",
+            "@radix-ui/react-dropdown-menu",
+            "@radix-ui/react-popover",
+            "@radix-ui/react-select",
+            "@radix-ui/react-tabs",
+            "@radix-ui/react-toast",
+            "@radix-ui/react-tooltip",
+          ],
+          "vendor-charts": ["recharts"],
+          "vendor-utils": ["date-fns", "zod", "react-hook-form", "@tanstack/react-query"],
+        },
+      },
+    },
   },
 }));

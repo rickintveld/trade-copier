@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -363,6 +363,64 @@ const EconomicCalendar: React.FC = () => {
     return groups;
   }, [filteredEvents]);
 
+  const eventRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const lastScrolledKey = useRef<string | null>(null);
+
+  const setEventRef = useCallback((key: string, el: HTMLDivElement | null) => {
+    if (el) {
+      eventRefs.current.set(key, el);
+    } else {
+      eventRefs.current.delete(key);
+    }
+  }, []);
+
+  // Reset scroll tracking when the date filter changes
+  useEffect(() => {
+    lastScrolledKey.current = null;
+  }, [selectedDate]);
+
+  // Auto-scroll to the first upcoming (non-past) event
+  // Only scroll when viewing "All" days or today — future days have no past
+  // events so scrolling would jump past the day header.
+  const shouldAutoScroll = selectedDate === null || isToday(selectedDate);
+
+  useEffect(() => {
+    if (!shouldAutoScroll || loading || Object.keys(groupedEvents).length === 0) return;
+
+    const scrollToUpcoming = () => {
+      const sortedEntries = Object.entries(groupedEvents)
+        .sort(([a], [b]) => a.localeCompare(b));
+
+      for (const [, dayEvents] of sortedEntries) {
+        for (let i = 0; i < dayEvents.length; i++) {
+          const event = dayEvents[i];
+          if (!isEventPast(event)) {
+            const key = `${event.date}-${event.title}-${i}`;
+            if (key !== lastScrolledKey.current) {
+              lastScrolledKey.current = key;
+              const el = eventRefs.current.get(key);
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }
+            return;
+          }
+        }
+      }
+    };
+
+    // Small delay on initial load so DOM refs are populated
+    const timeout = setTimeout(scrollToUpcoming, 200);
+
+    // Re-check every 30 seconds so we scroll when an event becomes past
+    const interval = setInterval(scrollToUpcoming, 30_000);
+
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [loading, groupedEvents]);
+
   const restrictionCount = useMemo(() => {
     return filteredEvents.filter((e) => e.restriction).length;
   }, [filteredEvents]);
@@ -494,9 +552,17 @@ const EconomicCalendar: React.FC = () => {
                       </span>
                     </div>
                     <div className="flex flex-col gap-3">
-                      {dayEvents.map((event, index) => (
-                        <EventCard key={`${event.date}-${event.title}-${index}`} event={event} />
-                      ))}
+                      {dayEvents.map((event, index) => {
+                        const eventKey = `${event.date}-${event.title}-${index}`;
+                        return (
+                          <div
+                            key={eventKey}
+                            ref={(el) => setEventRef(eventKey, el)}
+                          >
+                            <EventCard event={event} />
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );

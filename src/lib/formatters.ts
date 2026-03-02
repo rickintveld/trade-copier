@@ -31,7 +31,7 @@ export const formatLots = (lots: number): number => {
 };
 
 export const formatLatency = (ms: number): string => {
-  return `${ms}ms`;
+  return `${ms}μs`;
 };
 
 export const cn = (...classes: (string | undefined | false)[]): string => {

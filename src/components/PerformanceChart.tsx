@@ -165,7 +165,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
               </div>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Avg Latency</p>
-                <p className="text-2xl font-bold">{metrics.avgLatency}ms</p>
+                <p className="text-2xl font-bold">{metrics.avgLatency}μs</p>
               </div>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Port</p>
@@ -298,7 +298,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
         <Card className="glass-card border-border/50">
           <CardHeader>
             <CardTitle className="text-lg">Worker Latency</CardTitle>
-            <CardDescription>Response time per worker (ms)</CardDescription>
+            <CardDescription>Response time per worker (μs)</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={chartConfig} className="h-[250px]">
