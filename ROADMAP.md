@@ -19,8 +19,8 @@
 
 ## Medium (kwaliteitsverbeteringen)
 
-- [ ] **Tauri v2 migratie evalueren**
-  De app gebruikt Tauri v1. Tauri v2 (stable sinds oktober 2024) biedt betere app store signing, verbeterd security model en plugin architectuur.
+- [x] **Tauri v2 migratie evalueren**
+  De app gebruikt Tauri v2. Migratie voltooid met plugin architectuur voor dialog, fs en shell.
 
 - [ ] **Test coverage uitbreiden**
   Alleen `types.rs` heeft unit tests (6 tests). Voeg tests toe voor database, router, worker en installer modules.

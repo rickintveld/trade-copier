@@ -1,5 +1,5 @@
 // API client for trade-copier backend using Tauri
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 
 export interface ApiResponse<T> {
   success: boolean;

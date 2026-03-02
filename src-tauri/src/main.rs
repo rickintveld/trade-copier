@@ -148,6 +148,9 @@ async fn main() -> Result<()> {
     let shutdown_wm = worker_manager.clone();
     let shutdown_flag = shutting_down.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             tauri_commands::health_check,
@@ -171,7 +174,7 @@ async fn main() -> Result<()> {
             
             // Check dependencies on startup
             let db_clone = db.clone();
-            let app_handle = app.handle();
+            let app_handle = app.handle().clone();
             tokio::spawn(async move {
                 if let Err(e) = dependency_manager::check_dependencies(db_clone, Some(&app_handle)).await {
                     error!("Failed to check dependencies on startup: {}", e);
@@ -180,8 +183,8 @@ async fn main() -> Result<()> {
             
             Ok(())
         })
-        .on_window_event(move |event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event.event() {
+        .on_window_event(move |_window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Prevent double-shutdown if user clicks X again while cleanup is in progress
                 if shutdown_flag.swap(true, Ordering::SeqCst) {
                     return;

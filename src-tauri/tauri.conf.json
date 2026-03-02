@@ -1,73 +1,15 @@
 {
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
-    "devPath": "http://localhost:1420",
-    "distDir": "../dist",
-    "withGlobalTauri": false
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
   },
-  "package": {
-    "productName": "Trade Copier",
-    "version": "1.0.0"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "shell": {
-        "all": false,
-        "open": true
-      },
-      "dialog": {
-        "all": false,
-        "save": true
-      },
-      "fs": {
-        "all": false,
-        "writeFile": true,
-        "scope": ["$DOWNLOAD/*", "$DOCUMENT/*", "$DESKTOP/*"]
-      }
-    },
-    "bundle": {
-      "active": true,
-      "category": "Finance",
-      "copyright": "Copyright (c) 2026 Rick in 't Veld. All rights reserved.",
-      "deb": {
-        "depends": []
-      },
-      "externalBin": [],
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ],
-      "identifier": "dev.rickintveld.trade-copier",
-      "longDescription": "Trade Copier is a professional-grade desktop application for replicating MetaTrader 5 trades across multiple trading terminals in real-time. Featuring advanced risk management with customizable lot multipliers, low-latency TCP-based architecture, comprehensive audit logging, and automated MT5 instance management. Perfect for prop traders, fund managers, and trading educators who need reliable trade copying with microsecond-precision performance tracking.",
-      "macOS": {
-        "entitlements": "entitlements.plist",
-        "exceptionDomain": "",
-        "frameworks": [],
-        "providerShortName": null,
-        "signingIdentity": null
-      },
-      "resources": [
-        "src/mql5/**/*"
-      ],
-      "shortDescription": "Professional trade copier for MetaTrader 5 with real-time replication and risk management.",
-      "targets": "all",
-      "windows": {
-        "certificateThumbprint": null,
-        "digestAlgorithm": "sha256",
-        "timestampUrl": ""
-      }
-    },
-    "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'"
-    },
-    "updater": {
-      "active": false
-    },
+  "productName": "Trade Copier",
+  "version": "1.0.0",
+  "identifier": "dev.rickintveld.trade-copier",
+  "app": {
     "windows": [
       {
         "fullscreen": false,
@@ -78,6 +20,45 @@
         "minWidth": 800,
         "minHeight": 600
       }
-    ]
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "Finance",
+    "copyright": "Copyright (c) 2026 Rick in 't Veld. All rights reserved.",
+    "homepage": "https://trading-rocket.nl",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "longDescription": "Trade Copier is a professional-grade desktop application for replicating MetaTrader 5 trades across multiple trading terminals in real-time. Featuring advanced risk management with customizable lot multipliers, low-latency TCP-based architecture, comprehensive audit logging, and automated MT5 instance management. Perfect for prop traders, fund managers, and trading educators who need reliable trade copying with microsecond-precision performance tracking.",
+    "resources": [
+      "src/mql5/**/*"
+    ],
+    "shortDescription": "Professional trade copier for MetaTrader 5 with real-time replication and risk management.",
+    "targets": "all",
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    },
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
   }
 }

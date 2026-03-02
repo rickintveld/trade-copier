@@ -4,8 +4,8 @@ import { formatPrice, formatLots, formatRelativeTime, formatDateTime } from '@/l
 import { ArrowUpRight, ArrowDownRight, Filter, Download, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { save } from '@tauri-apps/api/dialog';
-import { writeTextFile } from '@tauri-apps/api/fs';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 import {
   Select,
   SelectContent,

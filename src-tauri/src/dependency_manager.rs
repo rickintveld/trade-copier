@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter};
 
 use crate::database::{Database, DependencyStatus};
 
@@ -136,7 +136,7 @@ pub async fn check_dependencies(db: Arc<Database>, app_handle: Option<&AppHandle
     
     // Emit event if app_handle is provided
     if let Some(handle) = app_handle {
-        let _ = handle.emit_all("dependency-status-changed", &response);
+        let _ = handle.emit("dependency-status-changed", &response);
     }
     
     Ok(response)
@@ -196,7 +196,7 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
             error_message: None,
             all_installed: false,
         };
-        let _ = app_handle.emit_all("dependency-status-changed", &status);
+        let _ = app_handle.emit("dependency-status-changed", &status);
         
         #[cfg(target_os = "macos")]
         {
@@ -267,7 +267,7 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
             error_message: None,
             all_installed: false,
         };
-        let _ = app_handle.emit_all("dependency-status-changed", &status);
+        let _ = app_handle.emit("dependency-status-changed", &status);
     }
     
     // Install Wine if needed (only on macOS/Linux)
@@ -292,7 +292,7 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
             error_message: None,
             all_installed: false,
         };
-        let _ = app_handle.emit_all("dependency-status-changed", &status);
+        let _ = app_handle.emit("dependency-status-changed", &status);
         
         #[cfg(target_os = "macos")]
         {
