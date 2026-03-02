@@ -22,25 +22,22 @@
 - [x] **Tauri v2 migratie evalueren**
   De app gebruikt Tauri v2. Migratie voltooid met plugin architectuur voor dialog, fs en shell.
 
-- [ ] **Test coverage uitbreiden**
-  Alleen `types.rs` heeft unit tests (6 tests). Voeg tests toe voor database, router, worker en installer modules.
-
-- [ ] **Tauri updater activeren voor GitHub Releases**
+- [x] **Tauri updater activeren voor GitHub Releases**
   `src-tauri/tauri.conf.json` heeft `"updater": { "active": false }`. Voor directe downloads (buiten app stores) krijgen gebruikers geen auto-updates.
 
-- [ ] **React Query client configureren**
+- [x] **React Query client configureren**
   `src/App.tsx` — QueryClient gebruikt defaults. Configureer `staleTime`, `retry` en `gcTime` voor optimale performance bij 2-seconde polling.
 
-- [ ] **`lovable-tagger` verwijderen uit devDependencies**
+- [x] **`lovable-tagger` verwijderen uit devDependencies**
   `package.json:81` — Development tool dat niet thuishoort in een productie project.
 
-- [ ] **Root `Cargo.toml` opruimen**
+- [x] **Root `Cargo.toml` opruimen**
   Root `Cargo.toml` bevat `axum`, `tower-http` en verwijst naar `src/main.rs`. Dit is een overblijfsel van vóór de Tauri-migratie.
 
-- [ ] **Ongebruikte `serde_yaml` dependency verwijderen**
+- [x] **Ongebruikte `serde_yaml` dependency verwijderen**
   Staat in zowel root als `src-tauri/Cargo.toml` maar wordt nergens gebruikt. Vergroot onnodig de binary.
 
-- [ ] **`Cargo.lock` uit `.gitignore` halen**
+- [x] **`Cargo.lock` uit `.gitignore` halen**
   Voor applicaties (niet libraries) moet `Cargo.lock` gecommit worden voor reproduceerbare builds.
 
 ## Laag (nice to have)
@@ -57,11 +54,5 @@
 - [ ] **Temp file leak fixen in installer**
   `src-tauri/src/installer/common.rs:52` — `std::mem::forget(temp_file)` lekt de TempFile handle. Gebruik een expliciete cleanup strategie.
 
-- [ ] **i18n support toevoegen**
-  De UI is Engels-only. Voor brede app store distributie is lokalisatie wenselijk.
-
 - [ ] **Rate limiting op TCP router**
   Een lokaal proces kan de router overspoelen met trades. Basic rate limiting is prudent voor een financiële applicatie.
-
-- [ ] **FTMO API URL configureerbaar maken**
-  `src-tauri/src/tauri_commands.rs:341` — Hardcoded URL naar `gw2.ftmo.com`. Maak configureerbaar en documenteer in het privacy beleid.

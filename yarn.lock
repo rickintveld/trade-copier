@@ -17,11 +17,6 @@
   resolved "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.21.5.tgz"
   integrity sha512-DwqXqZyuk5AiWWf3UfLiRDJ5EDd49zg6O9wclZ7kUMv2WRFr4HKjXp/5t8JZ11QbQfUS6/cRCKGwYhtNAY88kQ==
 
-"@esbuild/darwin-arm64@0.25.12":
-  version "0.25.12"
-  resolved "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.25.12.tgz"
-  integrity sha512-N3zl+lxHCifgIlcMUP5016ESkeQjLj/959RxxNYIthIg+CQHInujFuXeWbWMgnTo4cp5XVHqFPmpyu9J65C1Yg==
-
 "@eslint-community/eslint-utils@^4.7.0", "@eslint-community/eslint-utils@^4.8.0":
   version "4.9.0"
   resolved "https://registry.npmjs.org/@eslint-community/eslint-utils/-/eslint-utils-4.9.0.tgz"
@@ -1515,38 +1510,6 @@ esbuild@^0.21.3:
     "@esbuild/win32-ia32" "0.21.5"
     "@esbuild/win32-x64" "0.21.5"
 
-esbuild@^0.25.0:
-  version "0.25.12"
-  resolved "https://registry.npmjs.org/esbuild/-/esbuild-0.25.12.tgz"
-  integrity sha512-bbPBYYrtZbkt6Os6FiTLCTFxvq4tt3JKall1vRwshA3fdVztsLAatFaZobhkBC8/BrPetoa0oksYoKXoG4ryJg==
-  optionalDependencies:
-    "@esbuild/aix-ppc64" "0.25.12"
-    "@esbuild/android-arm" "0.25.12"
-    "@esbuild/android-arm64" "0.25.12"
-    "@esbuild/android-x64" "0.25.12"
-    "@esbuild/darwin-arm64" "0.25.12"
-    "@esbuild/darwin-x64" "0.25.12"
-    "@esbuild/freebsd-arm64" "0.25.12"
-    "@esbuild/freebsd-x64" "0.25.12"
-    "@esbuild/linux-arm" "0.25.12"
-    "@esbuild/linux-arm64" "0.25.12"
-    "@esbuild/linux-ia32" "0.25.12"
-    "@esbuild/linux-loong64" "0.25.12"
-    "@esbuild/linux-mips64el" "0.25.12"
-    "@esbuild/linux-ppc64" "0.25.12"
-    "@esbuild/linux-riscv64" "0.25.12"
-    "@esbuild/linux-s390x" "0.25.12"
-    "@esbuild/linux-x64" "0.25.12"
-    "@esbuild/netbsd-arm64" "0.25.12"
-    "@esbuild/netbsd-x64" "0.25.12"
-    "@esbuild/openbsd-arm64" "0.25.12"
-    "@esbuild/openbsd-x64" "0.25.12"
-    "@esbuild/openharmony-arm64" "0.25.12"
-    "@esbuild/sunos-x64" "0.25.12"
-    "@esbuild/win32-arm64" "0.25.12"
-    "@esbuild/win32-ia32" "0.25.12"
-    "@esbuild/win32-x64" "0.25.12"
-
 escalade@^3.2.0:
   version "3.2.0"
   resolved "https://registry.npmjs.org/escalade/-/escalade-3.2.0.tgz"
@@ -1953,14 +1916,6 @@ loose-envify@^1.1.0, loose-envify@^1.4.0:
   integrity sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==
   dependencies:
     js-tokens "^3.0.0 || ^4.0.0"
-
-lovable-tagger@^1.1.13:
-  version "1.1.13"
-  resolved "https://registry.npmjs.org/lovable-tagger/-/lovable-tagger-1.1.13.tgz"
-  integrity sha512-RBEYDxao7Xf8ya29L0cd+ocE7Gs80xPOIOwwck65Hoie8YDKViuXi3UYV14DoNWIvaJ7WVPf7SG3cc844nFqGA==
-  dependencies:
-    esbuild "^0.25.0"
-    tailwindcss "^3.4.17"
 
 lucide-react@^0.462.0:
   version "0.462.0"
@@ -2646,7 +2601,7 @@ victory-vendor@^36.6.8:
     d3-time "^3.0.0"
     d3-timer "^3.0.1"
 
-"vite@^4 || ^5 || ^6 || ^7", vite@^5.4.19, "vite@>=5.0.0 <8.0.0":
+"vite@^4 || ^5 || ^6 || ^7", vite@^5.4.19:
   version "5.4.21"
   resolved "https://registry.npmjs.org/vite/-/vite-5.4.21.tgz"
   integrity sha512-o5a9xKjbtuhY6Bi5S3+HvbRERmouabWbyUcpXXUA1u+GNUKoROi9byOJ8M0nHbHYHkYICiMlqxkg1KkYmm25Sw==

@@ -7,7 +7,16 @@ import { DependencyCheckModal } from "@/components/DependencyCheckModal";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000, // Consider data stale after 1s (for 2s polling)
+      gcTime: 5 * 60 * 1000, // Cache for 5 minutes
+      retry: 2, // Retry failed requests twice
+      refetchOnWindowFocus: false, // Don't refetch on window focus for real-time data
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
