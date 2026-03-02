@@ -48,7 +48,7 @@
 - [ ] **Database retention policy implementeren**
   `worker_errors` en `trades` tabellen groeien onbeperkt. Voeg een limiet toe (bijv. max 10.000 records of 30 dagen).
 
-- [ ] **Windows installer pad verplaatsen naar `%LOCALAPPDATA%`**
+- [x] **Windows installer pad verplaatsen naar `%LOCALAPPDATA%`**
   `src-tauri/src/installer/windows.rs:263` — Hardcoded pad `C:\MT5-{name}` volgt niet de Windows conventies.
 
 - [ ] **Temp file leak fixen in installer**

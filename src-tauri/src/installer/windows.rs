@@ -290,7 +290,9 @@ impl WindowsInstanceManager {
     fn generate_instance_path(&self, name: &str) -> Result<PathBuf> {
         #[cfg(target_os = "windows")]
         {
-            Ok(PathBuf::from(format!("C:\\MT5-{}", name)))
+            let local_app_data = std::env::var("LOCALAPPDATA")
+                .context("LOCALAPPDATA environment variable not found")?;
+            Ok(PathBuf::from(local_app_data).join("TradeCopier").join(format!("MT5-{}", name)))
         }
 
         #[cfg(not(target_os = "windows"))]
