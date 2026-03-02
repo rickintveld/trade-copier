@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use log::info;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use tokio::io::AsyncWriteExt;
 
 const MT5_INSTALLER_URL: &str = "https://download.mql5.com/cdn/web/metaquotes.ltd/mt5/mt5setup.exe";
 
@@ -20,37 +20,31 @@ pub async fn download_mt5_installer() -> Result<PathBuf> {
     }
 
     // Create temporary file
-    let temp_file = tempfile::Builder::new()
+    let mut temp_file = tempfile::Builder::new()
         .prefix("mt5setup")
         .suffix(".exe")
         .tempfile()
         .context("Failed to create temporary file")?;
-    
-    let temp_path = temp_file.path().to_path_buf();
     
     // Download content
     let bytes = response.bytes()
         .await
         .context("Failed to read MT5 installer bytes")?;
     
-    // Write to temp file
-    let mut file = tokio::fs::File::create(&temp_path)
-        .await
-        .context("Failed to create temp file for MT5 installer")?;
-    
+    // Write to temp file using std::io::Write
+    let file = temp_file.as_file_mut();
     file.write_all(&bytes)
-        .await
         .context("Failed to write MT5 installer to temp file")?;
     
     file.flush()
-        .await
         .context("Failed to flush MT5 installer file")?;
     
-    info!("[INSTALLER] Downloaded MT5 installer to {:?}", temp_path);
+    // Persist the temp file to prevent automatic cleanup
+    // This consumes the TempFile and returns the path without leaking the handle
+    let (_, temp_path) = temp_file.keep()
+        .context("Failed to persist temporary installer file")?;
     
-    // Keep the temp file alive by forgetting the TempFile handle
-    // The caller is responsible for cleanup
-    std::mem::forget(temp_file);
+    info!("[INSTALLER] Downloaded MT5 installer to {:?}", temp_path);
     
     Ok(temp_path)
 }

@@ -51,7 +51,7 @@
 - [x] **Windows installer pad verplaatsen naar `%LOCALAPPDATA%`**
   `src-tauri/src/installer/windows.rs:263` — Hardcoded pad `C:\MT5-{name}` volgt niet de Windows conventies.
 
-- [ ] **Temp file leak fixen in installer**
+- [x] **Temp file leak fixen in installer**
   `src-tauri/src/installer/common.rs:52` — `std::mem::forget(temp_file)` lekt de TempFile handle. Gebruik een expliciete cleanup strategie.
 
 - [ ] **Rate limiting op TCP router**
