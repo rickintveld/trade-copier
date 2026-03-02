@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use log::info;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
@@ -8,7 +9,7 @@ const MT5_INSTALLER_URL: &str = "https://download.mql5.com/cdn/web/metaquotes.lt
 
 /// Download MT5 installer to a temporary file
 pub async fn download_mt5_installer() -> Result<PathBuf> {
-    println!("[INSTALLER] Downloading MT5 installer from {}", MT5_INSTALLER_URL);
+    info!("[INSTALLER] Downloading MT5 installer from {}", MT5_INSTALLER_URL);
     
     let response = reqwest::get(MT5_INSTALLER_URL)
         .await
@@ -45,7 +46,7 @@ pub async fn download_mt5_installer() -> Result<PathBuf> {
         .await
         .context("Failed to flush MT5 installer file")?;
     
-    println!("[INSTALLER] Downloaded MT5 installer to {:?}", temp_path);
+    info!("[INSTALLER] Downloaded MT5 installer to {:?}", temp_path);
     
     // Keep the temp file alive by forgetting the TempFile handle
     // The caller is responsible for cleanup
@@ -56,7 +57,7 @@ pub async fn download_mt5_installer() -> Result<PathBuf> {
 
 /// Copy Expert Advisors from ./mql5/Trading Rocket/ to the MT5 MQL5/Experts directory
 pub fn copy_expert_advisors(wine_prefix: &Path) -> Result<()> {
-    println!("[INSTALLER] Copying Expert Advisors to MT5 directory");
+    info!("[INSTALLER] Copying Expert Advisors to MT5 directory");
     
     // Try multiple possible locations for the source directory
     let mut source_dir: Option<PathBuf> = None;
@@ -116,7 +117,7 @@ pub fn copy_expert_advisors(wine_prefix: &Path) -> Result<()> {
         )
     })?;
     
-    println!("[INSTALLER] Using source directory: {:?}", source_dir);
+    info!("[INSTALLER] Using source directory: {:?}", source_dir);
     
     // Destination directory in MT5 installation
     let dest_dir = wine_prefix.join("drive_c/Program Files/MetaTrader 5/MQL5/Experts/Trading Rocket");
@@ -125,7 +126,7 @@ pub fn copy_expert_advisors(wine_prefix: &Path) -> Result<()> {
     if !dest_dir.exists() {
         fs::create_dir_all(&dest_dir)
             .context(format!("Failed to create destination directory: {:?}", dest_dir))?;
-        println!("[INSTALLER] Created directory: {:?}", dest_dir);
+        info!("[INSTALLER] Created directory: {:?}", dest_dir);
     }
     
     // Copy all files from source to destination
@@ -151,19 +152,19 @@ pub fn copy_expert_advisors(wine_prefix: &Path) -> Result<()> {
             fs::copy(&path, &dest_path)
                 .context(format!("Failed to copy {:?} to {:?}", path, dest_path))?;
             
-            println!("[INSTALLER]   Copied: {:?}", file_name);
+            info!("[INSTALLER]   Copied: {:?}", file_name);
             copied_count += 1;
         }
     }
     
-    println!("[INSTALLER] Successfully copied {} Expert Advisor files", copied_count);
+    info!("[INSTALLER] Successfully copied {} Expert Advisor files", copied_count);
     Ok(())
 }
 
 /// Copy Default.tpl template from ./mql5/Profiles/Templates/ to the MT5 Profiles/Templates directory
 /// and update the WorkerPort parameter with the port from the worker address
 pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result<()> {
-    println!("[INSTALLER] Copying Default.tpl template to MT5 directory");
+    info!("[INSTALLER] Copying Default.tpl template to MT5 directory");
     
     // Try multiple possible locations for the source file
     let mut source_file: Option<PathBuf> = None;
@@ -223,7 +224,7 @@ pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result
         )
     })?;
     
-    println!("[INSTALLER] Using source file: {:?}", source_file);
+    info!("[INSTALLER] Using source file: {:?}", source_file);
     
     // Extract port from worker address (format: "IP:PORT")
     let worker_port = worker_address
@@ -231,7 +232,7 @@ pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result
         .nth(1)
         .context("Invalid worker address format, expected 'IP:PORT'")?;
     
-    println!("[INSTALLER] Setting WorkerPort to: {}", worker_port);
+    info!("[INSTALLER] Setting WorkerPort to: {}", worker_port);
     
     // Read the template file content (UTF-16LE encoded)
     let bytes = fs::read(&source_file)
@@ -266,7 +267,7 @@ pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result
     if !dest_dir.exists() {
         fs::create_dir_all(&dest_dir)
             .context(format!("Failed to create destination directory: {:?}", dest_dir))?;
-        println!("[INSTALLER] Created directory: {:?}", dest_dir);
+        info!("[INSTALLER] Created directory: {:?}", dest_dir);
     }
     
     // Encode back to UTF-16LE for writing
@@ -281,6 +282,6 @@ pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result
     fs::write(&dest_file, bytes_to_write)
         .context(format!("Failed to write updated template to {:?}", dest_file))?;
     
-    println!("[INSTALLER] Successfully copied and updated Default.tpl template with WorkerPort={}", worker_port);
+    info!("[INSTALLER] Successfully copied and updated Default.tpl template with WorkerPort={}", worker_port);
     Ok(())
 }

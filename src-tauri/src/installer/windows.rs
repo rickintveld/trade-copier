@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use log::{info, warn, error};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -27,22 +28,22 @@ impl WindowsInstanceManager {
         // Generate instance path
         let instance_path = self.generate_instance_path(&name)?;
 
-        println!("[INSTALLER] Creating directory at {:?}", instance_path);
+        info!("[INSTALLER] Creating directory at {:?}", instance_path);
 
         // Create the directory
         fs::create_dir_all(&instance_path)
             .context(format!("Failed to create directory '{:?}'", instance_path))?;
 
-        println!("[INSTALLER] Installing MT5 from {:?}", installer_path);
+        info!("[INSTALLER] Installing MT5 from {:?}", installer_path);
 
         #[cfg(target_os = "windows")]
         {
             // Run MT5 installer on Windows
             if let Err(e) = self.install_mt5_windows(&instance_path, installer_path) {
                 let error_msg = format!("MT5 installation failed: {}", e);
-                eprintln!("[INSTALLER] {}", error_msg);
-                eprintln!("[INSTALLER] The instance was created but MT5 installation incomplete.");
-                eprintln!("[INSTALLER] You can delete it with: DELETE /api/instances/{}", name);
+                error!("[INSTALLER] {}", error_msg);
+                error!("[INSTALLER] The instance was created but MT5 installation incomplete.");
+                error!("[INSTALLER] You can delete it with: DELETE /api/instances/{}", name);
                 // Log to worker_errors table
                 let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Critical, &error_msg).await;
                 return Err(e);
@@ -51,20 +52,20 @@ impl WindowsInstanceManager {
 
         #[cfg(not(target_os = "windows"))]
         {
-            println!("[INSTALLER] [DRY RUN - not on Windows] Would install MT5 to {:?}", instance_path);
+            info!("[INSTALLER] [DRY RUN - not on Windows] Would install MT5 to {:?}", instance_path);
         }
 
         // Copy Expert Advisors after successful installation
         if let Err(e) = super::common::copy_expert_advisors(&instance_path) {
             let error_msg = format!("Failed to copy Expert Advisors: {}. You can manually copy them from ./src/mql5/Trading Rocket/", e);
-            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            warn!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
         
         // Copy Default.tpl template with worker port configuration
         if let Err(e) = super::common::copy_default_template(&instance_path, &address) {
             let error_msg = format!("Failed to copy Default.tpl template: {}. You can manually copy it from ./src/mql5/Profiles/Templates/", e);
-            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            warn!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
 
@@ -80,19 +81,19 @@ impl WindowsInstanceManager {
             symbol_prefix,
         }).await?;
 
-        println!("[INSTALLER] Instance '{}' created successfully!", name);
-        println!("[INSTALLER]   Path: {:?}", instance_path);
-        println!("[INSTALLER]   Address: {}", address);
-        println!("[INSTALLER]   Multiplier: {}", multiplier);
-        println!("[INSTALLER] NOTE: Worker will be activated automatically after installation completes");
+        info!("[INSTALLER] Instance '{}' created successfully!", name);
+        info!("[INSTALLER]   Path: {:?}", instance_path);
+        info!("[INSTALLER]   Address: {}", address);
+        info!("[INSTALLER]   Multiplier: {}", multiplier);
+        info!("[INSTALLER] NOTE: Worker will be activated automatically after installation completes");
 
         Ok(())
     }
 
     pub async fn delete_instance(&self, worker: &crate::database::WorkerRecord, force: bool, db: Arc<Database>) -> Result<()> {
         if !force {
-            println!("[INSTALLER] Warning: This will delete instance '{}' and all its data", worker.name);
-            println!("[INSTALLER] Use force=true to confirm deletion");
+            info!("[INSTALLER] Warning: This will delete instance '{}' and all its data", worker.name);
+            info!("[INSTALLER] Use force=true to confirm deletion");
             bail!("Deletion cancelled - use force=true to confirm");
         }
 
@@ -120,7 +121,7 @@ impl WindowsInstanceManager {
                             let _ = Command::new("taskkill")
                                 .args(&["/F", "/PID", &pid.to_string()])
                                 .output();
-                            println!("[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'", pid, worker.name);
+                            info!("[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'", pid, worker.name);
                         }
                     }
                 }
@@ -132,15 +133,15 @@ impl WindowsInstanceManager {
             let instance_path = PathBuf::from(wine_prefix);
             if instance_path.exists() {
                 fs::remove_dir_all(&instance_path)?;
-                println!("[INSTALLER] Removed directory: {:?}", instance_path);
+                info!("[INSTALLER] Removed directory: {:?}", instance_path);
             }
         }
 
         // Remove from database using ID
         db.delete_worker_by_id(worker.id).await?;
 
-        println!("[INSTALLER] Instance '{}' deleted successfully", worker.name);
-        println!("[INSTALLER] NOTE: Workers will be reloaded automatically");
+        info!("[INSTALLER] Instance '{}' deleted successfully", worker.name);
+        info!("[INSTALLER] NOTE: Workers will be reloaded automatically");
 
         Ok(())
     }
@@ -152,7 +153,7 @@ impl WindowsInstanceManager {
 
         // If force is true, kill any existing MT5 processes
         if force {
-            println!("[INSTALLER] Force start requested, killing existing MT5 processes...");
+            info!("[INSTALLER] Force start requested, killing existing MT5 processes...");
             
             #[cfg(target_os = "windows")]
             {
@@ -162,7 +163,7 @@ impl WindowsInstanceManager {
                 
                 if let Ok(result) = output {
                     if result.status.success() {
-                        println!("[INSTALLER] Killed existing MT5 processes");
+                        info!("[INSTALLER] Killed existing MT5 processes");
                     }
                 }
             }
@@ -183,14 +184,14 @@ impl WindowsInstanceManager {
         // Copy Expert Advisors before starting
         if let Err(e) = super::common::copy_expert_advisors(&instance_path) {
             let error_msg = format!("Failed to copy Expert Advisors: {}", e);
-            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            warn!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
         
         // Copy Default.tpl template with worker port configuration before starting
         if let Err(e) = super::common::copy_default_template(&instance_path, &worker.address) {
             let error_msg = format!("Failed to copy Default.tpl template: {}", e);
-            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            warn!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
 
@@ -203,7 +204,7 @@ impl WindowsInstanceManager {
                 .spawn()
                 .context(format!("Failed to launch instance '{}'", worker.name)) {
                 let error_msg = format!("Failed to launch MT5: {}", e);
-                eprintln!("[INSTALLER] {}", error_msg);
+                error!("[INSTALLER] {}", error_msg);
                 let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Critical, &error_msg).await;
                 return Err(e);
             }
@@ -211,10 +212,10 @@ impl WindowsInstanceManager {
 
         #[cfg(not(target_os = "windows"))]
         {
-            println!("[INSTALLER] [DRY RUN - not on Windows] Would execute: {:?}", exe_path);
+            info!("[INSTALLER] [DRY RUN - not on Windows] Would execute: {:?}", exe_path);
         }
 
-        println!("[INSTALLER] Instance '{}' started", worker.name);
+        info!("[INSTALLER] Instance '{}' started", worker.name);
 
         Ok(())
     }
@@ -236,19 +237,19 @@ impl WindowsInstanceManager {
                 .context("Failed to execute taskkill")?;
 
             if output.status.success() {
-                println!("[INSTALLER] Successfully stopped MT5 process for instance '{}'", worker.name);
+                info!("[INSTALLER] Successfully stopped MT5 process for instance '{}'", worker.name);
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("[INSTALLER] Warning: Failed to stop MT5 process: {}", stderr);
+                warn!("[INSTALLER] Failed to stop MT5 process: {}", stderr);
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            println!("[INSTALLER] [DRY RUN - not on Windows] Would kill process for: {:?}", exe_path);
+            info!("[INSTALLER] [DRY RUN - not on Windows] Would kill process for: {:?}", exe_path);
         }
 
-        println!("[INSTALLER] Instance '{}' stopped", worker.name);
+        info!("[INSTALLER] Instance '{}' stopped", worker.name);
 
         Ok(())
     }
@@ -281,7 +282,7 @@ impl WindowsInstanceManager {
             bail!("MT5 installation failed");
         }
 
-        println!("[INSTALLER] MT5 installed successfully");
+        info!("[INSTALLER] MT5 installed successfully");
         Ok(())
     }
 }

@@ -412,7 +412,7 @@ impl Database {
         // Calculate total trades and avg latency from database
         let (total_trades, avg_latency_ms) = self.conn.call(|conn| {
             let total_trades: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM trades",
+                "SELECT COALESCE(MAX(id), 0) FROM trades",
                 [],
                 |row| row.get(0),
             ).unwrap_or(0);

@@ -94,7 +94,7 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
     try {
       await tradeCopierApi.createWorker({
         name: formData.name,
-        address: `0.0.0.0:${formData.port}`,
+        address: `127.0.0.1:${formData.port}`,
         multiplier: parseFloat(formData.multiplier),
         symbol_prefix: formData.symbol_prefix === 'none' ? '' : formData.symbol_prefix
       });
@@ -198,7 +198,7 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
                       </label>
                       <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                          0.0.0.0:
+                          127.0.0.1:
                         </span>
                         <Input
                           id="address"

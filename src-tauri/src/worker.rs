@@ -1,6 +1,8 @@
 use anyhow::Result;
+use log::{info, error};
 use tokio::sync::{broadcast, watch, mpsc};
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use std::sync::Arc;
 use std::time::{Instant, Duration};
 use tokio::sync::Mutex;
@@ -17,7 +19,7 @@ pub async fn run_worker(
     mut shutdown_rx: watch::Receiver<bool>,
     wine_prefix: Option<PathBuf>,
 ) -> Result<()> {
-    println!("[WORKER:{}] Starting TCP server on {}", slave.name, slave.address);
+    info!("[WORKER:{}] Starting TCP server on {}", slave.name, slave.address);
 
     // Set worker state to activated in database
     let wine_prefix_str = wine_prefix.as_ref().map(|p| p.to_string_lossy().to_string());
@@ -30,7 +32,7 @@ pub async fn run_worker(
         wine_prefix: wine_prefix_str,
         symbol_prefix: slave.symbol_prefix.clone(),
     }).await {
-        eprintln!("[WORKER:{}] Failed to update database on startup: {}", slave.name, e);
+        error!("[WORKER:{}] Failed to update database on startup: {}", slave.name, e);
     }
 
     // Try to bind with automatic retry and port cleanup
@@ -44,7 +46,7 @@ pub async fn run_worker(
                 WorkerState::Error,
                 Some(&error_msg),
             ).await {
-                eprintln!("[WORKER:{}] Failed to update database with error: {}", slave.name, db_err);
+                error!("[WORKER:{}] Failed to update database with error: {}", slave.name, db_err);
             }
             // Log critical error - worker cannot start
             if let Err(db_err) = db.insert_worker_error(
@@ -52,16 +54,16 @@ pub async fn run_worker(
                 ErrorSeverity::Critical,
                 &error_msg,
             ).await {
-                eprintln!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
+                error!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
             }
             return Err(e.into());
         }
     };
-    println!("[WORKER:{}] Listening on {} (TCP)", slave.name, slave.address);
+    info!("[WORKER:{}] Listening on {} (TCP)", slave.name, slave.address);
 
-    // Store active connection
-    let connection: Arc<Mutex<Option<tokio::net::TcpStream>>> = Arc::new(Mutex::new(None));
-    let connection_clone = connection.clone();
+    // Store writer half of connection (for send_trade and heartbeat)
+    let writer: Arc<Mutex<Option<OwnedWriteHalf>>> = Arc::new(Mutex::new(None));
+    let writer_accept = writer.clone();
     let name_clone = slave.name.clone();
     let address_clone = slave.address.clone();
     let db_clone = db.clone();
@@ -82,7 +84,7 @@ pub async fn run_worker(
     }
     
     // Spawn connection health monitoring task (heartbeat)
-    let connection_monitor = connection.clone();
+    let writer_heartbeat = writer.clone();
     let name_heartbeat = slave.name.clone();
     let address_heartbeat = slave.address.clone();
     let db_heartbeat = db.clone();
@@ -90,7 +92,7 @@ pub async fn run_worker(
     
     tokio::spawn(async move {
         monitor_connection_health(
-            connection_monitor,
+            writer_heartbeat,
             name_heartbeat,
             address_heartbeat,
             db_heartbeat,
@@ -98,55 +100,62 @@ pub async fn run_worker(
         ).await;
     });
     
-    // Spawn message reader task to continuously read from MT5
-    let connection_reader = connection.clone();
-    let pending_acks_reader = pending_acks.clone();
-    let name_reader = slave.name.clone();
-    let address_reader = slave.address.clone();
-    let db_reader = db.clone();
-    let shutdown_reader = shutdown_rx.clone();
-    
-    tokio::spawn(async move {
-        read_mt5_messages(
-            connection_reader,
-            pending_acks_reader,
-            name_reader,
-            address_reader,
-            db_reader,
-            shutdown_reader,
-        ).await;
-    });
+    // Track active reader task for clean reconnection
+    let reader_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>> = Arc::new(Mutex::new(None));
+    let reader_task_accept = reader_task.clone();
+    let pending_acks_accept = pending_acks.clone();
+    let shutdown_accept = shutdown_rx.clone();
 
     // Spawn task to accept connections
     tokio::spawn(async move {
         loop {
             match listener.accept().await {
                 Ok((stream, addr)) => {
-                    println!("[WORKER:{}] MT5 receiver connected from {}", name_clone, addr);
+                    info!("[WORKER:{}] MT5 receiver connected from {}", name_clone, addr);
                     
                     // Configure TCP keep-alive and socket options
                     if let Err(e) = configure_tcp_socket(&stream) {
-                        eprintln!("[WORKER:{}] Failed to configure socket options: {}", name_clone, e);
+                        error!("[WORKER:{}] Failed to configure socket options: {}", name_clone, e);
                     } else {
-                        println!("[WORKER:{}] TCP keep-alive configured", name_clone);
+                        info!("[WORKER:{}] TCP keep-alive configured", name_clone);
                     }
                     
-                    *connection_clone.lock().await = Some(stream);
+                    // Split stream into independent read/write halves (no shared lock)
+                    let (read_half, write_half) = stream.into_split();
+                    *writer_accept.lock().await = Some(write_half);
+                    
+                    // Abort old reader task and spawn a new one for this connection
+                    {
+                        let mut task = reader_task_accept.lock().await;
+                        if let Some(old_task) = task.take() {
+                            old_task.abort();
+                        }
+                        
+                        let pa = pending_acks_accept.clone();
+                        let name = name_clone.clone();
+                        let addr_str = address_clone.clone();
+                        let db = db_clone.clone();
+                        let shutdown = shutdown_accept.clone();
+                        
+                        *task = Some(tokio::spawn(async move {
+                            read_connection(read_half, pa, name, addr_str, db, shutdown).await;
+                        }));
+                    }
                     
                     // Update mt5_connected to true
                     if let Err(e) = db_clone.update_mt5_connected(&address_clone, true).await {
-                        eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", name_clone, e);
+                        error!("[WORKER:{}] Failed to update mt5_connected status: {}", name_clone, e);
                     }
                 }
                 Err(e) => {
                     let error_msg = format!("Failed to accept connection: {}", e);
-                    eprintln!("[WORKER:{}] {}", name_clone, error_msg);
+                    error!("[WORKER:{}] {}", name_clone, error_msg);
                     if let Err(db_err) = db_clone.update_worker_state(
                         &address_clone,
                         WorkerState::Error,
                         Some(&error_msg),
                     ).await {
-                        eprintln!("[WORKER:{}] Failed to update database: {}", name_clone, db_err);
+                        error!("[WORKER:{}] Failed to update database: {}", name_clone, db_err);
                     }
                     // Log error - connection accept failed
                     if let Err(db_err) = db_clone.insert_worker_error(
@@ -154,7 +163,7 @@ pub async fn run_worker(
                         ErrorSeverity::Error,
                         &error_msg,
                     ).await {
-                        eprintln!("[WORKER:{}] Failed to log error to database: {}", name_clone, db_err);
+                        error!("[WORKER:{}] Failed to log error to database: {}", name_clone, db_err);
                     }
                 }
             }
@@ -167,14 +176,14 @@ pub async fn run_worker(
             // Check for shutdown signal
             _ = shutdown_rx.changed() => {
                 if *shutdown_rx.borrow() {
-                    println!("[WORKER:{}] Received shutdown signal", slave.name);
+                    info!("[WORKER:{}] Received shutdown signal", slave.name);
                     break;
                 }
             }
             // Process incoming trades
             result = rx.recv() => match result {
                 Ok(mut trade) => {
-                println!("[WORKER:{}] Received trade: {:?}", slave.name, trade);
+                info!("[WORKER:{}] Received trade: {:?}", slave.name, trade);
 
                 // Apply risk multiplier
                 trade.lots *= slave.multiplier;
@@ -183,18 +192,18 @@ pub async fn run_worker(
                 // Apply symbol prefix if configured
                 if !slave.symbol_prefix.is_empty() {
                     trade.symbol = format!("{}{}", trade.symbol, slave.symbol_prefix);
-                    println!("[WORKER:{}] Applied symbol prefix: {}", slave.name, trade.symbol);
+                    info!("[WORKER:{}] Applied symbol prefix: {}", slave.name, trade.symbol);
                 }
 
-                println!(
+                info!(
                     "[WORKER:{}] Adjusted lots: {} (multiplier: {})",
                     slave.name, trade.lots, slave.multiplier
                 );
 
                     // Send trade to connected MT5 receiver and measure latency
-                    match send_trade(&connection, &pending_acks, &slave.name, &trade, &db, &slave.address).await {
+                    match send_trade(&writer, &pending_acks, &slave.name, &trade, &db, &slave.address).await {
                         Ok(latency_us) => {
-                            println!("[WORKER:{}] Trade sent successfully, latency: {}µs", slave.name, latency_us);
+                            info!("[WORKER:{}] Trade sent successfully, latency: {}µs", slave.name, latency_us);
                             
                             // Spawn background task to update latency (non-blocking)
                             let db_clone = db.clone();
@@ -202,7 +211,7 @@ pub async fn run_worker(
                             let name_clone = slave.name.clone();
                             tokio::spawn(async move {
                                 if let Err(e) = db_clone.update_worker_latency(&address_clone, latency_us).await {
-                                    eprintln!("[WORKER:{}] Failed to update latency in database: {}", name_clone, e);
+                                    error!("[WORKER:{}] Failed to update latency in database: {}", name_clone, e);
                                 }
                             });
                             
@@ -214,27 +223,27 @@ pub async fn run_worker(
                             tokio::spawn(async move {
                                 if let Err(e) = db_clone.insert_trade(&address_clone, &trade_clone).await {
                                     let error_msg = format!("Failed to save trade to database: {}", e);
-                                    eprintln!("[WORKER:{}] {}", name_clone, error_msg);
+                                    error!("[WORKER:{}] {}", name_clone, error_msg);
                                     // Log warning - trade was sent but not saved
                                     if let Err(db_err) = db_clone.insert_worker_error(
                                         &address_clone,
                                         ErrorSeverity::Warning,
                                         &error_msg,
                                     ).await {
-                                        eprintln!("[WORKER:{}] Failed to log error to database: {}", name_clone, db_err);
+                                        error!("[WORKER:{}] Failed to log error to database: {}", name_clone, db_err);
                                     }
                                 }
                             });
                         }
                         Err(e) => {
                             let error_msg = format!("Failed to send trade: {}", e);
-                            eprintln!("[WORKER:{}] {}", slave.name, error_msg);
+                            error!("[WORKER:{}] {}", slave.name, error_msg);
                             if let Err(db_err) = db.update_worker_state(
                                 &slave.address,
                                 WorkerState::Error,
                                 Some(&error_msg),
                             ).await {
-                                eprintln!("[WORKER:{}] Failed to update database: {}", slave.name, db_err);
+                                error!("[WORKER:{}] Failed to update database: {}", slave.name, db_err);
                             }
                             // Log error - trade sending failed
                             if let Err(db_err) = db.insert_worker_error(
@@ -242,20 +251,20 @@ pub async fn run_worker(
                                 ErrorSeverity::Error,
                                 &error_msg,
                             ).await {
-                                eprintln!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
+                                error!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
                             }
                         }
                     }
                 }
                 Err(e) => {
                     let error_msg = format!("Channel error: {}", e);
-                    eprintln!("[WORKER:{}] {}", slave.name, error_msg);
+                    error!("[WORKER:{}] {}", slave.name, error_msg);
                     if let Err(db_err) = db.update_worker_state(
                         &slave.address,
                         WorkerState::Error,
                         Some(&error_msg),
                     ).await {
-                        eprintln!("[WORKER:{}] Failed to update database: {}", slave.name, db_err);
+                        error!("[WORKER:{}] Failed to update database: {}", slave.name, db_err);
                     }
                     // Log critical error - channel is broken, worker must stop
                     if let Err(db_err) = db.insert_worker_error(
@@ -263,7 +272,7 @@ pub async fn run_worker(
                         ErrorSeverity::Critical,
                         &error_msg,
                     ).await {
-                        eprintln!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
+                        error!("[WORKER:{}] Failed to log error to database: {}", slave.name, db_err);
                     }
                     break;
                 }
@@ -272,18 +281,18 @@ pub async fn run_worker(
     }
 
     // Worker is shutting down - update state to deactivated
-    println!("[WORKER:{}] Deactivating worker", slave.name);
+    info!("[WORKER:{}] Deactivating worker", slave.name);
     if let Err(e) = db.update_worker_state(
         &slave.address,
         WorkerState::Inactive,
         None,
     ).await {
-        eprintln!("[WORKER:{}] Failed to update database on shutdown: {}", slave.name, e);
+        error!("[WORKER:{}] Failed to update database on shutdown: {}", slave.name, e);
     }
     
     // Set mt5_connected to false
     if let Err(e) = db.update_mt5_connected(&slave.address, false).await {
-        eprintln!("[WORKER:{}] Failed to update mt5_connected on shutdown: {}", slave.name, e);
+        error!("[WORKER:{}] Failed to update mt5_connected on shutdown: {}", slave.name, e);
     }
 
     Ok(())
@@ -300,8 +309,8 @@ async fn monitor_wine_process(
     let check_interval = tokio::time::Duration::from_secs(5);
     let mut interval = tokio::time::interval(check_interval);
     
-    println!("[WORKER:{}] Starting Wine process monitor for prefix: {:?}", worker_name, wine_prefix);
-    println!("[WORKER:{}] Waiting for Wine process to start before monitoring...", worker_name);
+    info!("[WORKER:{}] Starting Wine process monitor for prefix: {:?}", worker_name, wine_prefix);
+    info!("[WORKER:{}] Waiting for Wine process to start before monitoring...", worker_name);
     
     // Phase 1: Wait for Wine process to start (grace period)
     loop {
@@ -309,20 +318,20 @@ async fn monitor_wine_process(
             _ = interval.tick() => {
                 match is_wine_running(&wine_prefix).await {
                     Ok(true) => {
-                        println!("[WORKER:{}] Wine process detected, starting monitoring", worker_name);
+                        info!("[WORKER:{}] Wine process detected, starting monitoring", worker_name);
                         break;
                     }
                     Ok(false) => {
                         // Wine not running yet, keep waiting silently
                     }
                     Err(e) => {
-                        eprintln!("[WORKER:{}] Error checking Wine process: {}", worker_name, e);
+                        error!("[WORKER:{}] Error checking Wine process: {}", worker_name, e);
                     }
                 }
             }
             _ = shutdown_rx.changed() => {
                 if *shutdown_rx.borrow() {
-                    println!("[WORKER:{}] Wine monitor received shutdown signal before Wine started", worker_name);
+                    info!("[WORKER:{}] Wine monitor received shutdown signal before Wine started", worker_name);
                     return;
                 }
             }
@@ -340,7 +349,7 @@ async fn monitor_wine_process(
                             "Wine process stopped for prefix {:?}. MT5 application closed.",
                             wine_prefix
                         );
-                        eprintln!("[WORKER:{}] {}", worker_name, error_msg);
+                        error!("[WORKER:{}] {}", worker_name, error_msg);
                         
                         // Update worker state
                         if let Err(e) = db.update_worker_state(
@@ -348,12 +357,12 @@ async fn monitor_wine_process(
                             WorkerState::Inactive,
                             Some(&error_msg),
                         ).await {
-                            eprintln!("[WORKER:{}] Failed to update state: {}", worker_name, e);
+                            error!("[WORKER:{}] Failed to update state: {}", worker_name, e);
                         }
                         
                         // Update mt5_connected to false
                         if let Err(e) = db.update_mt5_connected(&address, false).await {
-                            eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, e);
+                            error!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, e);
                         }
                         
                         // Log warning
@@ -362,23 +371,23 @@ async fn monitor_wine_process(
                             ErrorSeverity::Warning,
                             &error_msg,
                         ).await {
-                            eprintln!("[WORKER:{}] Failed to log error: {}", worker_name, e);
+                            error!("[WORKER:{}] Failed to log error: {}", worker_name, e);
                         }
                         
-                        println!("[WORKER:{}] Worker stopped due to Wine process termination", worker_name);
+                        info!("[WORKER:{}] Worker stopped due to Wine process termination", worker_name);
                         break;
                     }
                     Ok(true) => {
                         // Still running, continue monitoring
                     }
                     Err(e) => {
-                        eprintln!("[WORKER:{}] Error checking Wine process: {}", worker_name, e);
+                        error!("[WORKER:{}] Error checking Wine process: {}", worker_name, e);
                     }
                 }
             }
             _ = shutdown_rx.changed() => {
                 if *shutdown_rx.borrow() {
-                    println!("[WORKER:{}] Wine monitor received shutdown signal", worker_name);
+                    info!("[WORKER:{}] Wine monitor received shutdown signal", worker_name);
                     break;
                 }
             }
@@ -404,7 +413,7 @@ async fn is_wine_running(wine_prefix: &Path) -> Result<bool> {
 
 /// Kill the Wine process for the given prefix
 pub async fn kill_wine_process(wine_prefix: &PathBuf) -> Result<()> {
-    println!("[WINE] Terminating Wine server for prefix {:?}", wine_prefix);
+    info!("[WINE] Terminating Wine server for prefix {:?}", wine_prefix);
     
     // Get wineserver path
     #[cfg(target_os = "macos")]
@@ -423,10 +432,10 @@ pub async fn kill_wine_process(wine_prefix: &PathBuf) -> Result<()> {
         .await?;
     
     if result.status.success() {
-        println!("[WINE] Successfully terminated Wine server");
+        info!("[WINE] Successfully terminated Wine server");
     } else {
         let stderr = String::from_utf8_lossy(&result.stderr);
-        eprintln!("[WINE] Warning: wineserver -k returned non-zero status: {}", stderr);
+        error!("[WINE] Warning: wineserver -k returned non-zero status: {}", stderr);
     }
     
     // Give Wine processes a moment to shut down
@@ -434,10 +443,10 @@ pub async fn kill_wine_process(wine_prefix: &PathBuf) -> Result<()> {
     
     // Verify all processes are stopped
     if is_wine_running(wine_prefix).await? {
-        eprintln!("[WINE] Warning: Some Wine processes still running after wineserver -k");
+        error!("[WINE] Warning: Some Wine processes still running after wineserver -k");
         
         // Fallback: try force kill with wineserver -k9
-        println!("[WINE] Attempting force kill with wineserver -k9");
+        info!("[WINE] Attempting force kill with wineserver -k9");
         let kill_result = tokio::process::Command::new(&wineserver)
             .arg("-k9")  // Force kill
             .env("WINEPREFIX", wine_prefix)
@@ -446,9 +455,9 @@ pub async fn kill_wine_process(wine_prefix: &PathBuf) -> Result<()> {
         
         if !kill_result.status.success() {
             let stderr = String::from_utf8_lossy(&kill_result.stderr);
-            eprintln!("[WINE] Force kill failed: {}", stderr);
+            error!("[WINE] Force kill failed: {}", stderr);
         } else {
-            println!("[WINE] Force kill completed");
+            info!("[WINE] Force kill completed");
         }
     }
     
@@ -482,7 +491,7 @@ fn configure_tcp_socket(stream: &tokio::net::TcpStream) -> Result<()> {
 
 /// Monitor connection health with periodic heartbeat
 async fn monitor_connection_health(
-    connection: Arc<Mutex<Option<tokio::net::TcpStream>>>,
+    writer: Arc<Mutex<Option<OwnedWriteHalf>>>,
     worker_name: String,
     address: String,
     db: Arc<Database>,
@@ -492,12 +501,12 @@ async fn monitor_connection_health(
     let mut interval = tokio::time::interval(heartbeat_interval);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     
-    println!("[WORKER:{}] Connection health monitor started (heartbeat every 30s)", worker_name);
+    info!("[WORKER:{}] Connection health monitor started (heartbeat every 30s)", worker_name);
     
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                let mut conn_guard = connection.lock().await;
+                let mut conn_guard = writer.lock().await;
                 
                 if let Some(stream) = conn_guard.as_mut() {
                     // Send heartbeat ping (simple newline)
@@ -506,15 +515,15 @@ async fn monitor_connection_health(
                     match stream.write_all(ping).await {
                         Ok(_) => {
                             // Connection is alive
-                            // println!("[WORKER:{}] Heartbeat sent successfully", worker_name);
+                            // info!("[WORKER:{}] Heartbeat sent successfully", worker_name);
                         }
                         Err(e) => {
-                            eprintln!("[WORKER:{}] Heartbeat failed, connection lost: {}", worker_name, e);
+                            error!("[WORKER:{}] Heartbeat failed, connection lost: {}", worker_name, e);
                             *conn_guard = None;
                             
                             // Update mt5_connected to false
                             if let Err(db_err) = db.update_mt5_connected(&address, false).await {
-                                eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
+                                error!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
                             }
                             
                             // Log error
@@ -524,7 +533,7 @@ async fn monitor_connection_health(
                                 ErrorSeverity::Warning,
                                 &error_msg,
                             ).await {
-                                eprintln!("[WORKER:{}] Failed to log error: {}", worker_name, db_err);
+                                error!("[WORKER:{}] Failed to log error: {}", worker_name, db_err);
                             }
                         }
                     }
@@ -532,7 +541,7 @@ async fn monitor_connection_health(
             }
             _ = shutdown_rx.changed() => {
                 if *shutdown_rx.borrow() {
-                    println!("[WORKER:{}] Connection health monitor shutting down", worker_name);
+                    info!("[WORKER:{}] Connection health monitor shutting down", worker_name);
                     break;
                 }
             }
@@ -540,101 +549,63 @@ async fn monitor_connection_health(
     }
 }
 
-/// Continuously read messages from MT5 connection
-async fn read_mt5_messages(
-    connection: Arc<Mutex<Option<tokio::net::TcpStream>>>,
+/// Continuously read messages from a single MT5 connection.
+/// Spawned per-connection; aborted on reconnection.
+/// Reads directly from OwnedReadHalf — no mutex, no polling delay.
+async fn read_connection(
+    mut reader: OwnedReadHalf,
     pending_acks: Arc<Mutex<HashMap<u64, mpsc::Sender<String>>>>,
     worker_name: String,
     address: String,
     db: Arc<Database>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
-    println!("[WORKER:{}] MT5 message reader started", worker_name);
-    
-    // Persistent buffer to avoid data loss between reads.
-    // Previously a new BufReader was created each iteration, which could
-    // silently discard data buffered from the TCP stream (e.g. a profit
-    // message arriving right after an ACK in the same segment).
     let mut recv_buffer = String::new();
+    let mut buf = [0u8; 4096];
     
     loop {
         tokio::select! {
+            biased;
             _ = shutdown_rx.changed() => {
                 if *shutdown_rx.borrow() {
-                    println!("[WORKER:{}] MT5 message reader shutting down", worker_name);
+                    info!("[WORKER:{}] MT5 reader shutting down", worker_name);
                     break;
                 }
             }
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                // Collect complete messages while holding the lock, then
-                // process them after releasing it.
-                let mut messages: Vec<String> = Vec::new();
-                let mut connection_closed = false;
-                let mut read_error: Option<std::io::Error> = None;
-                
-                {
-                    let mut conn_guard = connection.lock().await;
-                    
-                    if let Some(stream) = conn_guard.as_mut() {
-                        let mut buf = [0u8; 4096];
+            result = reader.read(&mut buf) => {
+                match result {
+                    Ok(0) => {
+                        info!("[WORKER:{}] MT5 connection closed", worker_name);
+                        if let Err(e) = db.update_mt5_connected(&address, false).await {
+                            error!("[WORKER:{}] Failed to update mt5_connected: {}", worker_name, e);
+                        }
+                        break;
+                    }
+                    Ok(n) => {
+                        recv_buffer.push_str(&String::from_utf8_lossy(&buf[..n]));
                         
-                        match tokio::time::timeout(
-                            Duration::from_millis(500),
-                            stream.read(&mut buf)
-                        ).await {
-                            Ok(Ok(0)) => {
-                                // Connection closed
-                                connection_closed = true;
-                                *conn_guard = None;
-                            }
-                            Ok(Ok(n)) => {
-                                recv_buffer.push_str(&String::from_utf8_lossy(&buf[..n]));
-                                
-                                // Extract all complete newline-delimited messages
-                                while let Some(pos) = recv_buffer.find('\n') {
-                                    let line = recv_buffer[..pos].trim().to_string();
-                                    recv_buffer = recv_buffer[pos + 1..].to_string();
-                                    if !line.is_empty() {
-                                        messages.push(line);
-                                    }
-                                }
-                            }
-                            Ok(Err(e)) => {
-                                read_error = Some(e);
-                                *conn_guard = None;
-                            }
-                            Err(_) => {
-                                // Timeout - no data available
+                        // Extract all complete newline-delimited messages
+                        while let Some(pos) = recv_buffer.find('\n') {
+                            let line = recv_buffer[..pos].trim().to_string();
+                            recv_buffer.drain(..pos + 1);
+                            if !line.is_empty() {
+                                process_mt5_message(
+                                    &worker_name,
+                                    &line,
+                                    &pending_acks,
+                                    &db,
+                                    &address,
+                                ).await;
                             }
                         }
                     }
-                } // lock released
-                
-                if connection_closed {
-                    println!("[WORKER:{}] MT5 connection closed", worker_name);
-                    recv_buffer.clear();
-                    if let Err(e) = db.update_mt5_connected(&address, false).await {
-                        eprintln!("[WORKER:{}] Failed to update mt5_connected: {}", worker_name, e);
+                    Err(e) => {
+                        error!("[WORKER:{}] Read error from MT5: {}", worker_name, e);
+                        if let Err(e) = db.update_mt5_connected(&address, false).await {
+                            error!("[WORKER:{}] Failed to update mt5_connected: {}", worker_name, e);
+                        }
+                        break;
                     }
-                }
-                
-                if let Some(e) = read_error {
-                    eprintln!("[WORKER:{}] Read error from MT5: {}", worker_name, e);
-                    recv_buffer.clear();
-                    if let Err(e) = db.update_mt5_connected(&address, false).await {
-                        eprintln!("[WORKER:{}] Failed to update mt5_connected: {}", worker_name, e);
-                    }
-                }
-                
-                // Process all collected messages outside the connection lock
-                for msg in &messages {
-                    process_mt5_message(
-                        &worker_name,
-                        msg,
-                        &pending_acks,
-                        &db,
-                        &address,
-                    ).await;
                 }
             }
         }
@@ -664,11 +635,11 @@ async fn process_mt5_message(
             let _ = sender.send(message.to_string()).await;
         } else {
             // No pending ack, just log
-            println!("[WORKER:{}] Received unexpected ack: {}", worker_name, message);
+            info!("[WORKER:{}] Received unexpected ack: {}", worker_name, message);
         }
     } else {
         // Unknown message type
-        println!("[WORKER:{}] Received unknown message: {}", worker_name, message);
+        info!("[WORKER:{}] Received unknown message: {}", worker_name, message);
     }
 }
 
@@ -682,7 +653,7 @@ async fn process_profit_info(
     // Try to parse as ProfitInfo
     match serde_json::from_str::<ProfitInfo>(message) {
         Ok(profit_info) => {
-            println!(
+            info!(
                 "[WORKER:{}] Received profit: {}",
                 worker_name, profit_info.profit
             );
@@ -692,17 +663,17 @@ async fn process_profit_info(
                 address,
                 profit_info.profit,
             ).await {
-                eprintln!("[WORKER:{}] Failed to save profit: {}", worker_name, e);
+                error!("[WORKER:{}] Failed to save profit: {}", worker_name, e);
             }
         }
         Err(e) => {
-            eprintln!("[WORKER:{}] Failed to parse profit info: {}", worker_name, e);
+            error!("[WORKER:{}] Failed to parse profit info: {}", worker_name, e);
         }
     }
 }
 
 async fn send_trade(
-    connection: &Arc<Mutex<Option<tokio::net::TcpStream>>>,
+    writer: &Arc<Mutex<Option<OwnedWriteHalf>>>,
     pending_acks: &Arc<Mutex<HashMap<u64, mpsc::Sender<String>>>>,
     worker_name: &str,
     trade: &Trade,
@@ -724,13 +695,13 @@ async fn send_trade(
         acks.insert(trade.id, ack_tx);
     }
     
-    // Send the trade
+    // Send the trade (writer lock is independent of reader — no contention)
     {
-        let mut conn_guard = connection.lock().await;
+        let mut conn_guard = writer.lock().await;
         
         if let Some(stream) = conn_guard.as_mut() {
             if let Err(e) = stream.write_all(message.as_bytes()).await {
-                eprintln!("[WORKER:{}] Write error, connection lost: {}", worker_name, e);
+                error!("[WORKER:{}] Write error, connection lost: {}", worker_name, e);
                 *conn_guard = None;
                 
                 // Clean up pending ack
@@ -738,13 +709,13 @@ async fn send_trade(
                 
                 // Update mt5_connected to false
                 if let Err(db_err) = db.update_mt5_connected(address, false).await {
-                    eprintln!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
+                    error!("[WORKER:{}] Failed to update mt5_connected status: {}", worker_name, db_err);
                 }
                 
                 return Err(anyhow::anyhow!("Connection lost: {}", e));
             }
             
-            println!("[WORKER:{}] Sent trade: {}", worker_name, trade_json);
+            info!("[WORKER:{}] Sent trade: {}", worker_name, trade_json);
         } else {
             // Clean up pending ack
             pending_acks.lock().await.remove(&trade.id);
@@ -759,7 +730,7 @@ async fn send_trade(
             pending_acks.lock().await.remove(&trade.id);
             
             let latency_us = start.elapsed().as_micros() as u64;
-            println!("[WORKER:{}] Received ack: {}", worker_name, response);
+            info!("[WORKER:{}] Received ack: {}", worker_name, response);
             Ok(latency_us)
         }
         Ok(None) => {
@@ -770,7 +741,7 @@ async fn send_trade(
         Err(_) => {
             // Timeout
             pending_acks.lock().await.remove(&trade.id);
-            eprintln!("[WORKER:{}] Timeout waiting for acknowledgment (5s)", worker_name);
+            error!("[WORKER:{}] Timeout waiting for acknowledgment (5s)", worker_name);
             Err(anyhow::anyhow!("Acknowledgment timeout"))
         }
     }

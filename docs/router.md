@@ -11,7 +11,7 @@ Signal Provider EA (Master MT5)
          |
          | TCP Connection
          v
-    Router (0.0.0.0:5000)
+    Router (127.0.0.1:5000)
          |
          | Broadcast Channel (tokio::sync::broadcast)
          v
@@ -28,10 +28,10 @@ Signal Provider EA (Master MT5)
 
 ### Server Setup
 
-The router binds to `0.0.0.0:5000` and accepts multiple concurrent connections:
+The router binds to `127.0.0.1:5000` and accepts multiple concurrent connections:
 
 ```rust
-let listener = TcpListener::bind("0.0.0.0:5000").await?;
+let listener = TcpListener::bind("127.0.0.1:5000").await?;
 ```
 
 ### Connection Lifecycle

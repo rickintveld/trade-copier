@@ -15,8 +15,9 @@ mod worker_manager;
 use anyhow::Result;
 use log::{info, error, warn};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, watch, Mutex};
 
 use database::Database;
 use tauri_commands::AppState;
@@ -86,40 +87,53 @@ async fn main() -> Result<()> {
         worker_manager_clone.run(command_rx).await;
     });
 
-    // Spawn router
+    // Create global shutdown signal for all background tasks
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    // Spawn router (with shutdown signal)
     let router_db = db.clone();
+    let router_shutdown_rx = shutdown_rx.clone();
     tokio::spawn(async move {
-        if let Err(e) = router::run_router(tx, router_db).await {
+        if let Err(e) = router::run_router(tx, router_db, router_shutdown_rx).await {
             error!("Router error: {}", e);
         }
     });
 
-    // Spawn system metrics collector (runs every 30 seconds)
+    // Spawn system metrics collector (runs every 30 seconds, with shutdown signal)
     let metrics_db = db.clone();
     let metrics_start_time = start_time;
+    let mut metrics_shutdown_rx = shutdown_rx.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
         loop {
-            interval.tick().await;
-
-            let uptime_seconds = metrics_start_time.elapsed().as_secs();
-
-            // Get worker counts from database
-            let (total_workers, active_workers) = match metrics_db.get_all_workers().await {
-                Ok(workers) => {
-                    let total = workers.len() as i32;
-                    let active = workers.iter().filter(|w| w.state == "active").count() as i32;
-                    (total, active)
+            tokio::select! {
+                _ = metrics_shutdown_rx.changed() => {
+                    if *metrics_shutdown_rx.borrow() {
+                        info!("Metrics collector shutting down");
+                        break;
+                    }
                 }
-                Err(_) => (0, 0),
-            };
+                _ = interval.tick() => {
+                    let uptime_seconds = metrics_start_time.elapsed().as_secs();
 
-            // Update system metrics (provider_connected defaults to false, will be updated by router)
-            if let Err(e) = metrics_db
-                .upsert_system_metrics("online", 5000, true, total_workers, active_workers, uptime_seconds, false)
-                .await
-            {
-                error!("Failed to update system metrics: {}", e);
+                    // Get worker counts from database
+                    let (total_workers, active_workers) = match metrics_db.get_all_workers().await {
+                        Ok(workers) => {
+                            let total = workers.len() as i32;
+                            let active = workers.iter().filter(|w| w.state == "active").count() as i32;
+                            (total, active)
+                        }
+                        Err(_) => (0, 0),
+                    };
+
+                    // Update system metrics (provider_connected defaults to false, will be updated by router)
+                    if let Err(e) = metrics_db
+                        .upsert_system_metrics("online", 5000, true, total_workers, active_workers, uptime_seconds, false)
+                        .await
+                    {
+                        error!("Failed to update system metrics: {}", e);
+                    }
+                }
             }
         }
     });
@@ -127,7 +141,12 @@ async fn main() -> Result<()> {
     info!("Trade Copier backend is running");
     info!("TCP Router listening on port 5000");
 
+    // Shared flag to prevent multiple shutdown attempts
+    let shutting_down = Arc::new(AtomicBool::new(false));
+
     // Build and run Tauri app
+    let shutdown_wm = worker_manager.clone();
+    let shutdown_flag = shutting_down.clone();
     tauri::Builder::default()
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
@@ -161,9 +180,29 @@ async fn main() -> Result<()> {
             
             Ok(())
         })
-        .on_window_event(|event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event.event() {
-                info!("Window close requested, shutting down...");
+        .on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event.event() {
+                // Prevent double-shutdown if user clicks X again while cleanup is in progress
+                if shutdown_flag.swap(true, Ordering::SeqCst) {
+                    return;
+                }
+
+                info!("Window close requested, starting graceful shutdown...");
+
+                // Prevent the window from closing immediately — we'll exit after cleanup
+                api.prevent_close();
+
+                // Signal all background tasks (router, metrics collector) to stop
+                let _ = shutdown_tx.send(true);
+
+                // Run async cleanup, then exit
+                let wm = shutdown_wm.clone();
+                tokio::spawn(async move {
+                    // Gracefully stop all workers, kill Wine processes, update DB
+                    wm.shutdown_all().await;
+                    info!("Graceful shutdown complete, exiting");
+                    std::process::exit(0);
+                });
             }
         })
         .build(tauri::generate_context!())

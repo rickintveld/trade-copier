@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use log::{info, warn, error};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,7 +26,7 @@ impl MacInstanceManager {
         // Ensure Wine is installed (will install automatically if not present)
         if let Err(e) = super::package_manager::ensure_wine_installed_auto() {
             let error_msg = format!("Wine installation failed: {}", e);
-            eprintln!("[INSTALLER] {}", error_msg);
+            error!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Critical, &error_msg).await;
             return Err(e);
         }
@@ -35,23 +36,23 @@ impl MacInstanceManager {
         let id = workers.len() + 1;
         let prefix_path = self.generate_prefix_path(id)?;
 
-        println!("[INSTALLER] Creating Wine prefix at {:?}", prefix_path);
+        info!("[INSTALLER] Creating Wine prefix at {:?}", prefix_path);
 
         // Create Wine prefix
         if let Err(e) = create_wine_prefix(&prefix_path) {
             let error_msg = format!("Failed to create Wine prefix: {}", e);
-            eprintln!("[INSTALLER] {}", error_msg);
+            error!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Critical, &error_msg).await;
             return Err(e);
         }
 
         // Install MT5
-        println!("[INSTALLER] Installing MT5 from {:?}", installer_path);
+        info!("[INSTALLER] Installing MT5 from {:?}", installer_path);
         if let Err(e) = install_mt5(&prefix_path, installer_path) {
             let error_msg = format!("MT5 installation failed: {}", e);
-            eprintln!("[INSTALLER] {}", error_msg);
-            eprintln!("[INSTALLER] The instance was created but MT5 installation incomplete.");
-            eprintln!("[INSTALLER] You can delete it with: DELETE /api/instances/{}", name);
+            error!("[INSTALLER] {}", error_msg);
+            error!("[INSTALLER] The instance was created but MT5 installation incomplete.");
+            error!("[INSTALLER] You can delete it with: DELETE /api/instances/{}", name);
             // Log to worker_errors table
             let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Critical, &error_msg).await;
             return Err(e);
@@ -60,14 +61,14 @@ impl MacInstanceManager {
         // Copy Expert Advisors after successful installation
         if let Err(e) = super::common::copy_expert_advisors(&prefix_path) {
             let error_msg = format!("Failed to copy Expert Advisors: {}. You can manually copy them from ./src/mql5/Trading Rocket/", e);
-            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            warn!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
         
         // Copy Default.tpl template with worker port configuration
         if let Err(e) = super::common::copy_default_template(&prefix_path, &address) {
             let error_msg = format!("Failed to copy Default.tpl template: {}. You can manually copy it from ./src/mql5/Profiles/Templates/", e);
-            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            warn!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
 
@@ -83,20 +84,20 @@ impl MacInstanceManager {
             symbol_prefix,
         }).await?;
 
-        println!("[INSTALLER] Instance '{}' created successfully!", name);
-        println!("[INSTALLER]   ID: {}", id);
-        println!("[INSTALLER]   Prefix: {:?}", prefix_path);
-        println!("[INSTALLER]   Address: {}", address);
-        println!("[INSTALLER]   Multiplier: {}", multiplier);
-        println!("[INSTALLER] NOTE: Worker will be activated automatically after installation completes");
+        info!("[INSTALLER] Instance '{}' created successfully!", name);
+        info!("[INSTALLER]   ID: {}", id);
+        info!("[INSTALLER]   Prefix: {:?}", prefix_path);
+        info!("[INSTALLER]   Address: {}", address);
+        info!("[INSTALLER]   Multiplier: {}", multiplier);
+        info!("[INSTALLER] NOTE: Worker will be activated automatically after installation completes");
 
         Ok(())
     }
 
     pub async fn delete_instance(&self, worker: &crate::database::WorkerRecord, force: bool, db: Arc<Database>) -> Result<()> {
         if !force {
-            println!("[INSTALLER] Warning: This will delete instance '{}' and all its data", worker.name);
-            println!("[INSTALLER] Use force=true to confirm deletion");
+            info!("[INSTALLER] Warning: This will delete instance '{}' and all its data", worker.name);
+            info!("[INSTALLER] Use force=true to confirm deletion");
             bail!("Deletion cancelled - use force=true to confirm");
         }
 
@@ -106,21 +107,21 @@ impl MacInstanceManager {
             
             // Kill Wine process
             if let Err(e) = crate::worker::kill_wine_process(&prefix_path).await {
-                eprintln!("[INSTALLER] Warning: Failed to kill Wine process: {}", e);
+                warn!("[INSTALLER] Failed to kill Wine process: {}", e);
             }
             
             // Delete Wine prefix directory if it exists
             if prefix_path.exists() {
                 fs::remove_dir_all(&prefix_path)?;
-                println!("[INSTALLER] Removed Wine prefix: {:?}", prefix_path);
+                info!("[INSTALLER] Removed Wine prefix: {:?}", prefix_path);
             }
         }
 
         // Remove from database using ID
         db.delete_worker_by_id(worker.id).await?;
 
-        println!("[INSTALLER] Instance '{}' deleted successfully", worker.name);
-        println!("[INSTALLER] NOTE: Workers will be reloaded automatically");
+        info!("[INSTALLER] Instance '{}' deleted successfully", worker.name);
+        info!("[INSTALLER] NOTE: Workers will be reloaded automatically");
 
         Ok(())
     }
@@ -133,7 +134,7 @@ impl MacInstanceManager {
         // Kill the Wine process
         crate::worker::kill_wine_process(&prefix_path).await?;
         
-        println!("[INSTALLER] Instance '{}' stopped", worker.name);
+        info!("[INSTALLER] Instance '{}' stopped", worker.name);
         
         Ok(())
     }
@@ -142,7 +143,7 @@ impl MacInstanceManager {
         // Ensure Wine is installed (will install automatically if not present)
         if let Err(e) = super::package_manager::ensure_wine_installed_auto() {
             let error_msg = format!("Wine installation failed: {}", e);
-            eprintln!("[INSTALLER] {}", error_msg);
+            error!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Critical, &error_msg).await;
             return Err(e);
         }
@@ -155,13 +156,13 @@ impl MacInstanceManager {
         // Note: We don't kill processes using the port because the worker's TCP server
         // is part of the trade-copier application itself
         if force {
-            println!("[INSTALLER] Force start requested, killing existing Wine process...");
+            info!("[INSTALLER] Force start requested, killing existing Wine process...");
             
             // Kill any existing Wine process for this prefix
             if let Err(e) = crate::worker::kill_wine_process(&prefix_path).await {
-                eprintln!("[INSTALLER] Warning: Failed to kill Wine process: {}", e);
+                warn!("[INSTALLER] Failed to kill Wine process: {}", e);
             } else {
-                println!("[INSTALLER] Killed existing Wine process for this instance");
+                info!("[INSTALLER] Killed existing Wine process for this instance");
             }
             
             // Give Wine process time to fully terminate
@@ -171,26 +172,26 @@ impl MacInstanceManager {
         // Copy Expert Advisors before starting
         if let Err(e) = super::common::copy_expert_advisors(&prefix_path) {
             let error_msg = format!("Failed to copy Expert Advisors: {}", e);
-            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            warn!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
         
         // Copy Default.tpl template with worker port configuration before starting
         if let Err(e) = super::common::copy_default_template(&prefix_path, &worker.address) {
             let error_msg = format!("Failed to copy Default.tpl template: {}", e);
-            eprintln!("[INSTALLER] Warning: {}", error_msg);
+            warn!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Warning, &error_msg).await;
         }
 
         let mt5_exe = self.mt5_executable(&prefix_path);
         if let Err(e) = launch_mt5(&prefix_path, &mt5_exe, None).await {
             let error_msg = format!("Failed to launch MT5: {}", e);
-            eprintln!("[INSTALLER] {}", error_msg);
+            error!("[INSTALLER] {}", error_msg);
             let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Critical, &error_msg).await;
             return Err(e);
         }
 
-        println!("[INSTALLER] Instance '{}' started", worker.name);
+        info!("[INSTALLER] Instance '{}' started", worker.name);
 
         Ok(())
     }
@@ -239,7 +240,7 @@ fn get_wine_path() -> Result<PathBuf> {
     for wine_path in &wine_paths {
         let path = Path::new(wine_path);
         if path.exists() {
-            println!("[INSTALLER] Found Wine at {}", wine_path);
+            info!("[INSTALLER] Found Wine at {}", wine_path);
             return Ok(path.to_path_buf());
         }
     }
@@ -293,7 +294,7 @@ fn create_wine_prefix(prefix_path: &Path) -> Result<()> {
         bail!("Wine prefix creation failed");
     }
 
-    println!("[INSTALLER] Wine prefix created successfully");
+    info!("[INSTALLER] Wine prefix created successfully");
     Ok(())
 }
 
@@ -302,7 +303,7 @@ fn install_mt5(prefix_path: &Path, installer_path: &Path) -> Result<()> {
         bail!("MT5 installer not found at {:?}", installer_path);
     }
 
-    println!("[INSTALLER] Installing MT5... This may take a few minutes.");
+    info!("[INSTALLER] Installing MT5... This may take a few minutes.");
 
     // Get Wine executable path
     let wine = get_wine_path()?;
@@ -315,7 +316,7 @@ fn install_mt5(prefix_path: &Path, installer_path: &Path) -> Result<()> {
         .spawn()
         .context("Failed to run MT5 installer")?;
 
-    println!("[INSTALLER] Installer process started (PID: {}), waiting for installation to complete...", child.id());
+    info!("[INSTALLER] Installer process started (PID: {}), waiting for installation to complete...", child.id());
 
     // Poll for the MT5 executable to appear
     let mt5_exe = prefix_path.join("drive_c/Program Files/MetaTrader 5/terminal64.exe");
@@ -326,8 +327,8 @@ fn install_mt5(prefix_path: &Path, installer_path: &Path) -> Result<()> {
     loop {
         // Check if executable exists
         if mt5_exe.exists() {
-            println!("[INSTALLER] MT5 executable detected at {:?}", mt5_exe);
-            println!("[INSTALLER] MT5 installed successfully");
+            info!("[INSTALLER] MT5 executable detected at {:?}", mt5_exe);
+            info!("[INSTALLER] MT5 installed successfully");
             
             // Let the installer process finish naturally
             return Ok(());
@@ -348,7 +349,7 @@ fn install_mt5(prefix_path: &Path, installer_path: &Path) -> Result<()> {
             Ok(Some(status)) => {
                 // Process exited - check if executable was created
                 if mt5_exe.exists() {
-                    println!("[INSTALLER] MT5 installed successfully");
+                    info!("[INSTALLER] MT5 installed successfully");
                     return Ok(());
                 } else {
                     bail!(
@@ -387,7 +388,7 @@ async fn launch_mt5(prefix_path: &Path, mt5_executable: &Path, _db: Option<Arc<D
         .spawn()
         .context("Failed to launch MT5")?;
 
-    println!("[INSTALLER] MT5 launched for prefix {:?}", prefix_path);
+    info!("[INSTALLER] MT5 launched for prefix {:?}", prefix_path);
 
     Ok(())
 }

@@ -1,5 +1,6 @@
 use anyhow::Result;
-use tokio::sync::broadcast;
+use log::{info, error};
+use tokio::sync::{broadcast, watch};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use std::sync::Arc;
 use crate::types::Trade;
@@ -7,29 +8,46 @@ use crate::database::Database;
 
 const ROUTER_PORT: u16 = 5000;
 
-pub async fn run_router(tx: broadcast::Sender<Trade>, db: Arc<Database>) -> Result<()> {
-    let address = format!("0.0.0.0:{}", ROUTER_PORT);
+pub async fn run_router(
+    tx: broadcast::Sender<Trade>,
+    db: Arc<Database>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> Result<()> {
+    let address = format!("127.0.0.1:{}", ROUTER_PORT);
     let listener = crate::port_utils::bind_with_retry(&address).await?;
-    println!("[ROUTER] Listening on port {} (TCP)", ROUTER_PORT);
+    info!("[ROUTER] Listening on port {} (TCP)", ROUTER_PORT);
 
     loop {
-        match listener.accept().await {
-            Ok((stream, addr)) => {
-                println!("[ROUTER] New connection from {}", addr);
-                let tx_clone = tx.clone();
-                let db_clone = db.clone();
-                
-                tokio::spawn(async move {
-                    if let Err(e) = handle_connection(stream, tx_clone, db_clone, addr).await {
-                        eprintln!("[ROUTER] Connection error from {}: {}", addr, e);
-                    }
-                });
+        tokio::select! {
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    info!("[ROUTER] Received shutdown signal, stopping...");
+                    break;
+                }
             }
-            Err(e) => {
-                eprintln!("[ROUTER] Failed to accept connection: {}", e);
+            result = listener.accept() => {
+                match result {
+                    Ok((stream, addr)) => {
+                        info!("[ROUTER] New connection from {}", addr);
+                        let tx_clone = tx.clone();
+                        let db_clone = db.clone();
+                        
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_connection(stream, tx_clone, db_clone, addr).await {
+                                error!("[ROUTER] Connection error from {}: {}", addr, e);
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        error!("[ROUTER] Failed to accept connection: {}", e);
+                    }
+                }
             }
         }
     }
+
+    info!("[ROUTER] Stopped");
+    Ok(())
 }
 
 async fn handle_connection(
@@ -38,11 +56,11 @@ async fn handle_connection(
     db: Arc<Database>,
     addr: std::net::SocketAddr,
 ) -> Result<()> {
-    println!("[ROUTER] Master MT5 connected from {}", addr);
+    info!("[ROUTER] Master MT5 connected from {}", addr);
     
     // Update provider_connected status to true
     if let Err(e) = update_provider_status(&db, true).await {
-        eprintln!("[ROUTER] Failed to update provider status: {}", e);
+        error!("[ROUTER] Failed to update provider status: {}", e);
     }
     
     let reader = BufReader::new(stream);
@@ -57,30 +75,30 @@ async fn handle_connection(
         match serde_json::from_str::<Trade>(&line) {
             Ok(trade) => {
                 trade_count += 1;
-                println!("[ROUTER] Received trade from {}: {:?}", addr, trade);
+                info!("[ROUTER] Received trade from {}: {:?}", addr, trade);
                 
                 // Broadcast to all workers
                 match tx.send(trade.clone()) {
                     Ok(receivers) => {
-                        println!("[ROUTER] Broadcasted to {} workers", receivers);
+                        info!("[ROUTER] Broadcasted to {} workers", receivers);
                     }
                     Err(e) => {
-                        eprintln!("[ROUTER] Failed to broadcast: {}", e);
+                        error!("[ROUTER] Failed to broadcast: {}", e);
                     }
                 }
             }
             Err(e) => {
-                eprintln!("[ROUTER] Failed to parse trade: {}", e);
+                error!("[ROUTER] Failed to parse trade: {}", e);
             }
         }
     }
 
-    println!("[ROUTER] Master MT5 disconnected from {} (processed {} trades)", addr, trade_count);
-    println!("[ROUTER] Waiting for master MT5 to reconnect...");
+    info!("[ROUTER] Master MT5 disconnected from {} (processed {} trades)", addr, trade_count);
+    info!("[ROUTER] Waiting for master MT5 to reconnect...");
     
     // Update provider_connected status to false
     if let Err(e) = update_provider_status(&db, false).await {
-        eprintln!("[ROUTER] Failed to update provider status: {}", e);
+        error!("[ROUTER] Failed to update provider status: {}", e);
     }
     
     Ok(())

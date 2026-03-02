@@ -344,7 +344,7 @@ Example:
 Connect to worker on different machine:
 
 1. Worker configuration:
-   - Use `0.0.0.0:<port>` for worker address (binds to all interfaces)
+   - Use `127.0.0.1:<port>` for worker address (binds to all interfaces)
    - Or specific network IP
 
 2. EA configuration:

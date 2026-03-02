@@ -329,7 +329,7 @@ EA only needs to run on ONE chart:
 Connect to router on different machine:
 
 1. Router configuration:
-   - Ensure router binds to `0.0.0.0:5000` (not just localhost)
+   - Ensure router binds to `127.0.0.1:5000` (not just localhost)
 
 2. EA configuration:
    ```

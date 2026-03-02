@@ -8,6 +8,7 @@ pub mod mac;
 pub mod windows;
 
 use anyhow::Result;
+use log::{info, warn, error};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use crate::database::Database;
@@ -85,7 +86,7 @@ impl InstanceManager {
                 inner.create_instance(name_bg.clone(), address_bg.clone(), multiplier, symbol_prefix_bg.clone(), &installer_path, db.clone()).await?;
                 // Clean up
                 if let Err(e) = std::fs::remove_file(&installer_path) {
-                    eprintln!("[INSTALLER] Warning: Failed to remove installer: {}", e);
+                    warn!("[INSTALLER] Failed to remove installer: {}", e);
                 }
                 // Mark as inactive after installation completes - worker will activate when application starts
                 db.update_worker_state(&address_bg, WorkerState::Inactive, None).await?;
@@ -93,16 +94,16 @@ impl InstanceManager {
                 // Start only the newly created worker, not all workers
                 if let Some(tx) = reload_tx {
                     if let Err(e) = tx.send(crate::worker_manager::WorkerCommand::Start(worker_id)).await {
-                        eprintln!("[INSTALLER] Failed to start worker for new instance: {}", e);
+                        error!("[INSTALLER] Failed to start worker for new instance: {}", e);
                     } else {
-                        println!("[INSTALLER] Started worker [{}] for new instance '{}'", worker_id, name_bg);
+                        info!("[INSTALLER] Started worker [{}] for new instance '{}'", worker_id, name_bg);
                     }
                 }
                 
                 anyhow::Ok(())
             }.await {
                 let error_msg = format!("installation failed: {}", e);
-                eprintln!("[INSTALLER] Background install for '{}' failed: {}", name_bg, e);
+                error!("[INSTALLER] Background install for '{}' failed: {}", name_bg, e);
                 
                 // Update worker state
                 let _ = db.update_worker_state(&address_bg, WorkerState::Error, Some(&error_msg)).await;
@@ -110,7 +111,7 @@ impl InstanceManager {
                 // Log to worker_errors table for visibility in UI
                 use crate::database::ErrorSeverity;
                 if let Err(log_err) = db.insert_worker_error(&address_bg, ErrorSeverity::Critical, &error_msg).await {
-                    eprintln!("[INSTALLER] Failed to log installation error to database: {}", log_err);
+                    error!("[INSTALLER] Failed to log installation error to database: {}", log_err);
                 }
             }
         });

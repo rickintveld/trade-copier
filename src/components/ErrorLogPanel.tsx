@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ErrorLog } from '@/types/trading';
-import { formatTimestamp } from '@/lib/formatters';
+import { formatDateTime } from '@/lib/formatters';
 import { AlertTriangle, AlertCircle, XCircle, Search, Filter } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -132,7 +132,7 @@ const ErrorLogPanel: React.FC<ErrorLogPanelProps> = ({ errors }) => {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <span className="font-mono text-xs text-muted-foreground">
-                  {formatTimestamp(error.timestamp)}
+                  {formatDateTime(error.timestamp)}
                 </span>
                 <span
                   className={`px-1.5 py-0.5 rounded text-xs font-medium uppercase tracking-wide ${

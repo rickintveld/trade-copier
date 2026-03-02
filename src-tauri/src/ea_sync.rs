@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use log::info;
 use std::fs;
 use std::path::PathBuf;
 
@@ -98,7 +99,7 @@ fn get_ea_source_path() -> Result<PathBuf> {
     // Check all candidates
     for candidate in candidates.iter().chain(production_candidates.iter()) {
         if candidate.exists() && candidate.is_dir() {
-            println!("[EA_SYNC] Found EA source directory: {:?}", candidate);
+            info!("[EA_SYNC] Found EA source directory: {:?}", candidate);
             return Ok(candidate.clone());
         }
     }
@@ -119,21 +120,21 @@ fn get_ea_source_path() -> Result<PathBuf> {
 /// Copy Expert Advisors from the application bundle to the master MT5 installation
 /// This should be called on application startup to ensure the latest version is always available
 pub fn sync_expert_advisors_to_master() -> Result<()> {
-    println!("[EA_SYNC] Starting Expert Advisor synchronization to master MT5 installation...");
+    info!("[EA_SYNC] Starting Expert Advisor synchronization to master MT5 installation...");
     
     // Get source and destination paths
     let source_dir = get_ea_source_path()?;
     let experts_dir = get_master_mt5_experts_path()?;
     let dest_dir = experts_dir.join("Trading Rocket");
     
-    println!("[EA_SYNC] Source: {:?}", source_dir);
-    println!("[EA_SYNC] Destination: {:?}", dest_dir);
+    info!("[EA_SYNC] Source: {:?}", source_dir);
+    info!("[EA_SYNC] Destination: {:?}", dest_dir);
     
     // Create destination directory if it doesn't exist
     if !dest_dir.exists() {
         fs::create_dir_all(&dest_dir)
             .context(format!("Failed to create destination directory: {:?}", dest_dir))?;
-        println!("[EA_SYNC] Created directory: {:?}", dest_dir);
+        info!("[EA_SYNC] Created directory: {:?}", dest_dir);
     }
     
     // Read all files from source directory
@@ -167,11 +168,11 @@ pub fn sync_expert_advisors_to_master() -> Result<()> {
         fs::copy(&path, &dest_path)
             .context(format!("Failed to copy {:?} to {:?}", path, dest_path))?;
         
-        println!("[EA_SYNC]   ✓ Copied: {:?}", file_name);
+        info!("[EA_SYNC]   ✓ Copied: {:?}", file_name);
         copied_count += 1;
     }
     
-    println!(
+    info!(
         "[EA_SYNC] ✓ Successfully synchronized {} Expert Advisor file(s) ({} skipped)",
         copied_count,
         skipped_count
@@ -190,11 +191,11 @@ mod tests {
         // In CI/CD, you might want to skip this test
         match get_master_mt5_experts_path() {
             Ok(path) => {
-                println!("Found MT5 at: {:?}", path);
+                info!("Found MT5 at: {:?}", path);
                 assert!(path.exists());
             }
             Err(e) => {
-                println!("MT5 not found (expected if not installed): {}", e);
+                info!("MT5 not found (expected if not installed): {}", e);
             }
         }
     }
@@ -204,11 +205,11 @@ mod tests {
         // This should work in development environment
         match get_ea_source_path() {
             Ok(path) => {
-                println!("Found EA source at: {:?}", path);
+                info!("Found EA source at: {:?}", path);
                 assert!(path.exists());
             }
             Err(e) => {
-                println!("EA source not found: {}", e);
+                info!("EA source not found: {}", e);
             }
         }
     }

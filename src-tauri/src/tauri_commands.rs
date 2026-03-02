@@ -1,3 +1,4 @@
+use log::{warn, error};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -175,7 +176,7 @@ pub async fn delete_instance(
                 // Stop only the specific worker for the deleted instance
                 let tx = state.worker_command_tx.lock().await;
                 if let Err(e) = tx.send(WorkerCommand::Stop(worker.id)).await {
-                    eprintln!("[TAURI] Failed to send stop command: {}", e);
+                    error!("[TAURI] Failed to send stop command: {}", e);
                 }
 
                 Ok(ApiResponse {
@@ -209,7 +210,7 @@ pub async fn start_instance(
     if force {
         let tx = state.worker_command_tx.lock().await;
         if let Err(e) = tx.send(WorkerCommand::Stop(worker.id)).await {
-            eprintln!("[TAURI] Failed to send stop command before force start: {}", e);
+            error!("[TAURI] Failed to send stop command before force start: {}", e);
         } else {
             // Give the worker time to shut down and release the port
             drop(tx); // Release the lock before sleeping
@@ -226,7 +227,7 @@ pub async fn start_instance(
                     crate::database::WorkerState::Inactive,
                     None,
                 ).await {
-                    eprintln!("[TAURI] Failed to clear error state: {}", e);
+                    error!("[TAURI] Failed to clear error state: {}", e);
                 }
                 
                 // Now send start command to worker manager
@@ -269,11 +270,11 @@ pub async fn stop_instance(
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => {
             if let Err(e) = manager.stop_instance(&worker).await {
-                eprintln!("[TAURI] Warning: Failed to stop MT5 instance: {}", e);
+                warn!("[TAURI] Failed to stop MT5 instance: {}", e);
             }
         }
         Err(e) => {
-            eprintln!("[TAURI] Warning: Failed to initialize instance manager: {}", e);
+            warn!("[TAURI] Failed to initialize instance manager: {}", e);
         }
     }
 

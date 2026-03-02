@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use log::{info, warn};
 use std::process::Command;
 use std::io::Write;
 
@@ -33,12 +34,12 @@ pub fn is_homebrew_installed() -> bool {
 #[cfg(target_os = "macos")]
 pub fn install_homebrew() -> Result<()> {
     if is_homebrew_installed() {
-        println!("[INSTALLER] Homebrew is already installed");
+        info!("[INSTALLER] Homebrew is already installed");
         return Ok(());
     }
 
-    println!("[INSTALLER] Homebrew is not installed. Installing Homebrew...");
-    println!("[INSTALLER] This will require user interaction and may ask for your password.");
+    info!("[INSTALLER] Homebrew is not installed. Installing Homebrew...");
+    info!("[INSTALLER] This will require user interaction and may ask for your password.");
     
     // Homebrew installation script
     let install_script = r#"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#;
@@ -53,20 +54,20 @@ pub fn install_homebrew() -> Result<()> {
         bail!("Homebrew installation failed");
     }
     
-    println!("[INSTALLER] Homebrew installed successfully");
+    info!("[INSTALLER] Homebrew installed successfully");
     
     // Check if we need to add Homebrew to PATH (Apple Silicon)
     if cfg!(target_arch = "aarch64") {
-        println!("[INSTALLER] Detected Apple Silicon. Checking Homebrew PATH...");
+        info!("[INSTALLER] Detected Apple Silicon. Checking Homebrew PATH...");
         
         // Try to run brew after installation
         if !is_homebrew_installed() {
-            println!("[INSTALLER] Adding Homebrew to PATH for this session...");
-            println!("[INSTALLER] Note: You may need to restart your terminal for permanent PATH changes");
+            info!("[INSTALLER] Adding Homebrew to PATH for this session...");
+            info!("[INSTALLER] Note: You may need to restart your terminal for permanent PATH changes");
             
             // For the current process, we can't modify PATH for subsequent commands
             // but we can inform the user
-            println!("[INSTALLER] Please run: eval \"$(/opt/homebrew/bin/brew shellenv)\"");
+            info!("[INSTALLER] Please run: eval \"$(/opt/homebrew/bin/brew shellenv)\"");
         }
     }
     
@@ -104,15 +105,15 @@ pub fn is_wine_installed() -> bool {
 #[cfg(target_os = "macos")]
 pub fn install_wine() -> Result<()> {
     if is_wine_installed() {
-        println!("[INSTALLER] Wine is already installed");
+        info!("[INSTALLER] Wine is already installed");
         return Ok(());
     }
     
-    println!("[INSTALLER] Wine is not installed. Installing Wine via Homebrew...");
+    info!("[INSTALLER] Wine is not installed. Installing Wine via Homebrew...");
     
     // Ensure Homebrew is installed first
     if !is_homebrew_installed() {
-        println!("[INSTALLER] Homebrew is required to install Wine");
+        info!("[INSTALLER] Homebrew is required to install Wine");
         install_homebrew()?;
     }
     
@@ -132,7 +133,7 @@ pub fn install_wine() -> Result<()> {
         bail!("Homebrew not found. Please ensure Homebrew is installed and in PATH");
     };
     
-    println!("[INSTALLER] Installing wine-stable (this may take several minutes)...");
+    info!("[INSTALLER] Installing wine-stable (this may take several minutes)...");
     
     let status = Command::new(brew_cmd)
         .args(["install", "--cask", "wine-stable"])
@@ -143,12 +144,12 @@ pub fn install_wine() -> Result<()> {
         bail!("Wine installation failed. Please try manually: brew install --cask wine-stable");
     }
     
-    println!("[INSTALLER] Wine installed successfully");
+    info!("[INSTALLER] Wine installed successfully");
     
     // Verify installation
     if !is_wine_installed() {
-        eprintln!("[INSTALLER] Warning: Wine was installed but not found in expected locations");
-        eprintln!("[INSTALLER] You may need to restart your terminal");
+        warn!("[INSTALLER] Wine was installed but not found in expected locations");
+        warn!("[INSTALLER] You may need to restart your terminal");
     }
     
     Ok(())
@@ -163,9 +164,9 @@ pub fn ensure_wine_installed() -> Result<()> {
         return Ok(());
     }
     
-    println!("[INSTALLER] ═══════════════════════════════════════════════════════");
-    println!("[INSTALLER] Wine is required but not installed");
-    println!("[INSTALLER] ═══════════════════════════════════════════════════════");
+    info!("[INSTALLER] ═══════════════════════════════════════════════════════");
+    info!("[INSTALLER] Wine is required but not installed");
+    info!("[INSTALLER] ═══════════════════════════════════════════════════════");
     
     // Ask user for confirmation
     print!("[INSTALLER] Do you want to install Wine now? This will also install Homebrew if needed. (y/n): ");
@@ -180,9 +181,9 @@ pub fn ensure_wine_installed() -> Result<()> {
     
     if input == "y" || input == "yes" {
         install_wine()?;
-        println!("[INSTALLER] ═══════════════════════════════════════════════════════");
-        println!("[INSTALLER] Wine installation complete!");
-        println!("[INSTALLER] ═══════════════════════════════════════════════════════");
+        info!("[INSTALLER] ═══════════════════════════════════════════════════════");
+        info!("[INSTALLER] Wine installation complete!");
+        info!("[INSTALLER] ═══════════════════════════════════════════════════════");
         Ok(())
     } else {
         bail!("Wine installation cancelled by user. Please install Wine manually: brew install --cask wine-stable");
@@ -197,16 +198,16 @@ pub fn ensure_wine_installed_auto() -> Result<()> {
         return Ok(());
     }
     
-    println!("[INSTALLER] ═══════════════════════════════════════════════════════");
-    println!("[INSTALLER] Wine is required but not installed");
-    println!("[INSTALLER] Automatically installing Wine and Homebrew (if needed)...");
-    println!("[INSTALLER] ═══════════════════════════════════════════════════════");
+    info!("[INSTALLER] ═══════════════════════════════════════════════════════");
+    info!("[INSTALLER] Wine is required but not installed");
+    info!("[INSTALLER] Automatically installing Wine and Homebrew (if needed)...");
+    info!("[INSTALLER] ═══════════════════════════════════════════════════════");
     
     install_wine()?;
     
-    println!("[INSTALLER] ═══════════════════════════════════════════════════════");
-    println!("[INSTALLER] Wine installation complete!");
-    println!("[INSTALLER] ═══════════════════════════════════════════════════════");
+    info!("[INSTALLER] ═══════════════════════════════════════════════════════");
+    info!("[INSTALLER] Wine installation complete!");
+    info!("[INSTALLER] ═══════════════════════════════════════════════════════");
     
     Ok(())
 }
@@ -224,12 +225,12 @@ pub fn is_chocolatey_installed() -> bool {
 #[cfg(target_os = "windows")]
 pub fn install_chocolatey() -> Result<()> {
     if is_chocolatey_installed() {
-        println!("[INSTALLER] Chocolatey is already installed");
+        info!("[INSTALLER] Chocolatey is already installed");
         return Ok(());
     }
     
-    println!("[INSTALLER] Chocolatey is not installed. Installing Chocolatey...");
-    println!("[INSTALLER] This requires administrator privileges");
+    info!("[INSTALLER] Chocolatey is not installed. Installing Chocolatey...");
+    info!("[INSTALLER] This requires administrator privileges");
     
     // Chocolatey installation command (requires PowerShell with admin rights)
     let install_script = "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))";
@@ -247,7 +248,7 @@ pub fn install_chocolatey() -> Result<()> {
         bail!("Chocolatey installation failed. Please run PowerShell as Administrator and try again.");
     }
     
-    println!("[INSTALLER] Chocolatey installed successfully");
+    info!("[INSTALLER] Chocolatey installed successfully");
     Ok(())
 }
 
@@ -257,9 +258,9 @@ pub fn ensure_chocolatey_installed() -> Result<()> {
         return Ok(());
     }
     
-    println!("[INSTALLER] ═══════════════════════════════════════════════════════");
-    println!("[INSTALLER] Chocolatey package manager is not installed");
-    println!("[INSTALLER] ═══════════════════════════════════════════════════════");
+    info!("[INSTALLER] ═══════════════════════════════════════════════════════");
+    info!("[INSTALLER] Chocolatey package manager is not installed");
+    info!("[INSTALLER] ═══════════════════════════════════════════════════════");
     
     print!("[INSTALLER] Do you want to install Chocolatey now? This requires administrator privileges. (y/n): ");
     std::io::stdout().flush().context("Failed to flush stdout")?;
@@ -273,9 +274,9 @@ pub fn ensure_chocolatey_installed() -> Result<()> {
     
     if input == "y" || input == "yes" {
         install_chocolatey()?;
-        println!("[INSTALLER] ═══════════════════════════════════════════════════════");
-        println!("[INSTALLER] Chocolatey installation complete!");
-        println!("[INSTALLER] ═══════════════════════════════════════════════════════");
+        info!("[INSTALLER] ═══════════════════════════════════════════════════════");
+        info!("[INSTALLER] Chocolatey installation complete!");
+        info!("[INSTALLER] ═══════════════════════════════════════════════════════");
         Ok(())
     } else {
         bail!("Chocolatey installation cancelled by user");
