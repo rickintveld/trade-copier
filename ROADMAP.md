@@ -14,7 +14,7 @@
 - [x] **`BrowserRouter` vervangen door `HashRouter`**
   `src/App.tsx` — Tauri serveert content via een custom protocol (`tauri://`), niet via een HTTP server. `BrowserRouter` kan routing-problemen veroorzaken in production builds.
 
-- [ ] **Windows force-start: alleen specifieke MT5 instance stoppen**
+- [x] **Windows force-start: alleen specifieke MT5 instance stoppen**
   `src-tauri/src/installer/windows.rs:159` — `taskkill /F /IM terminal64.exe` doodt alle MT5 instances. Gebruik process ID filtering om alleen de specifieke instance te stoppen.
 
 ## Medium (kwaliteitsverbeteringen)

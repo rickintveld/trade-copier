@@ -151,19 +151,31 @@ impl WindowsInstanceManager {
             .context("Instance does not have a path configured")?;
         let instance_path = PathBuf::from(wine_prefix);
 
-        // If force is true, kill any existing MT5 processes
+        // If force is true, kill any existing MT5 processes for this specific instance
         if force {
-            info!("[INSTALLER] Force start requested, killing existing MT5 processes...");
+            info!("[INSTALLER] Force start requested, killing existing MT5 process for instance '{}'...", worker.name);
             
             #[cfg(target_os = "windows")]
             {
-                let output = Command::new("taskkill")
-                    .args(&["/F", "/IM", "terminal64.exe"])
+                // Find and kill only processes running from this instance's directory
+                let exe_path = instance_path.join("terminal64.exe");
+                let exe_path_str = exe_path.to_string_lossy().replace("\\", "\\\\");
+                
+                // Query for processes with this specific executable path
+                let output = Command::new("wmic")
+                    .args(&["process", "where", &format!("ExecutablePath='{}'", exe_path_str), "get", "ProcessId"])
                     .output();
                 
                 if let Ok(result) = output {
-                    if result.status.success() {
-                        info!("[INSTALLER] Killed existing MT5 processes");
+                    let stdout = String::from_utf8_lossy(&result.stdout);
+                    // Parse PIDs from output and kill each one
+                    for line in stdout.lines().skip(1) { // Skip header
+                        if let Ok(pid) = line.trim().parse::<u32>() {
+                            let _ = Command::new("taskkill")
+                                .args(&["/F", "/PID", &pid.to_string()])
+                                .output();
+                            info!("[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'", pid, worker.name);
+                        }
                     }
                 }
             }
@@ -226,21 +238,38 @@ impl WindowsInstanceManager {
         let instance_path = PathBuf::from(wine_prefix);
 
         let exe_path = instance_path.join("terminal64.exe");
-        let exe_name = "terminal64.exe";
 
         #[cfg(target_os = "windows")]
         {
-            // Use taskkill to terminate the process
-            let output = Command::new("taskkill")
-                .args(&["/F", "/IM", exe_name])
-                .output()
-                .context("Failed to execute taskkill")?;
-
-            if output.status.success() {
-                info!("[INSTALLER] Successfully stopped MT5 process for instance '{}'", worker.name);
+            // Find and kill only processes running from this instance's directory
+            let exe_path_str = exe_path.to_string_lossy().replace("\\", "\\\\");
+            
+            // Query for processes with this specific executable path
+            let output = Command::new("wmic")
+                .args(&["process", "where", &format!("ExecutablePath='{}'", exe_path_str), "get", "ProcessId"])
+                .output();
+            
+            if let Ok(result) = output {
+                let stdout = String::from_utf8_lossy(&result.stdout);
+                let mut stopped_any = false;
+                // Parse PIDs from output and kill each one
+                for line in stdout.lines().skip(1) { // Skip header
+                    if let Ok(pid) = line.trim().parse::<u32>() {
+                        let _ = Command::new("taskkill")
+                            .args(&["/F", "/PID", &pid.to_string()])
+                            .output();
+                        info!("[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'", pid, worker.name);
+                        stopped_any = true;
+                    }
+                }
+                
+                if stopped_any {
+                    info!("[INSTALLER] Successfully stopped MT5 process for instance '{}'", worker.name);
+                } else {
+                    info!("[INSTALLER] No running MT5 process found for instance '{}'", worker.name);
+                }
             } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                warn!("[INSTALLER] Failed to stop MT5 process: {}", stderr);
+                warn!("[INSTALLER] Failed to query MT5 process for instance '{}'", worker.name);
             }
         }
 
