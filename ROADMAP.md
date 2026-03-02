@@ -11,7 +11,7 @@
 - [x] **`println!`/`eprintln!` vervangen door `log` crate**
   `router.rs`, `worker.rs`, `worker_manager.rs`, `installer/*.rs`, `ea_sync.rs`, `tauri_commands.rs` gebruiken nog steeds raw `println!`/`eprintln!`. Op Windows met `windows_subsystem = "windows"` gaat deze output verloren. Gebruik consistent `log::info!`, `log::error!`, etc.
 
-- [ ] **`BrowserRouter` vervangen door `HashRouter`**
+- [x] **`BrowserRouter` vervangen door `HashRouter`**
   `src/App.tsx` — Tauri serveert content via een custom protocol (`tauri://`), niet via een HTTP server. `BrowserRouter` kan routing-problemen veroorzaken in production builds.
 
 - [ ] **Windows force-start: alleen specifieke MT5 instance stoppen**
