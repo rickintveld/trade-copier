@@ -42,7 +42,7 @@
 
 ## Laag (nice to have)
 
-- [ ] **React Error Boundary toevoegen**
+- [x] **React Error Boundary toevoegen**
   Als een component crasht, toont de hele app een wit scherm. Voeg een Error Boundary toe met een gebruiksvriendelijke foutmelding.
 
 - [ ] **Database retention policy implementeren**
