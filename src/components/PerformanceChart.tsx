@@ -4,7 +4,6 @@ import { formatUptime } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell } from 'recharts';
-import { formatDistanceToNow } from 'date-fns';
 import { CheckCircle2, XCircle, Clock, AlertTriangle } from 'lucide-react';
 import { DependencyStatus } from '@/hooks/useDependencyStatus';
 

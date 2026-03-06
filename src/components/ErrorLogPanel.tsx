@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ErrorLog } from '@/types/trading';
 import { formatDateTime } from '@/lib/formatters';
-import { AlertTriangle, AlertCircle, XCircle, Search, Filter } from 'lucide-react';
+import { AlertTriangle, AlertCircle, XCircle, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   Select,
