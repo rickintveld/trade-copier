@@ -1,4 +1,4 @@
-use log::{warn, error};
+use log::{info, warn, error};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -156,6 +156,127 @@ pub async fn create_instance(
         }
         Err(e) => Err(format!("Failed to initialize instance manager: {}", e)),
     }
+}
+
+// Update instance
+#[tauri::command]
+pub async fn update_instance(
+    state: State<'_, AppState>,
+    id: i64,
+    name: String,
+    address: String,
+    multiplier: f64,
+    symbol_prefix: Option<String>,
+) -> Result<ApiResponse<serde_json::Value>, String> {
+    // Validate input using SlaveConfig
+    let config = crate::types::SlaveConfig {
+        name: name.clone(),
+        address: address.clone(),
+        multiplier,
+        symbol_prefix: symbol_prefix.clone().unwrap_or_default(),
+    };
+    
+    if let Err(e) = config.validate() {
+        return Err(format!("Invalid configuration: {}", e));
+    }
+    
+    // Get current worker info to check if it's running
+    let worker = state.db.get_worker_by_id(id).await
+        .map_err(|e| format!("Failed to get worker: {}", e))?
+        .ok_or_else(|| format!("Worker with ID {} not found", id))?;
+    
+    let was_active = worker.state == "active";
+    
+    // Stop the worker if it's currently running
+    if was_active {
+        let tx = state.worker_command_tx.lock().await;
+        if let Err(e) = tx.send(WorkerCommand::Stop(id)).await {
+            error!("[TAURI] Failed to send stop command for update: {}", e);
+        }
+        drop(tx);
+        // Give the worker time to shut down
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+    
+    // Also stop the MT5 instance if it was running
+    if was_active {
+        match InstanceManager::new(state.db.clone()) {
+            Ok(manager) => {
+                if let Err(e) = manager.stop_instance(&worker).await {
+                    warn!("[TAURI] Failed to stop MT5 instance during update: {}", e);
+                }
+            }
+            Err(e) => {
+                warn!("[TAURI] Failed to initialize instance manager during update: {}", e);
+            }
+        }
+        
+        // Poll until the TCP port is actually free (max ~10s)
+        info!("[TAURI] Waiting for port to be released...");
+        let mut port_free = false;
+        for attempt in 1..=20 {
+            match tokio::net::TcpListener::bind(&address).await {
+                Ok(listener) => {
+                    drop(listener);
+                    info!("[TAURI] Port {} is now free (after {}ms)", address, attempt * 500);
+                    port_free = true;
+                    break;
+                }
+                Err(_) => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
+            }
+        }
+        if !port_free {
+            warn!("[TAURI] Port {} still in use after 10s, proceeding anyway", address);
+        }
+    }
+    
+    // Update the worker settings in the database
+    let prefix = symbol_prefix.unwrap_or_default();
+    state.db.update_worker_settings(id, &name, &address, multiplier, &prefix).await
+        .map_err(|e| format!("Failed to update worker: {}", e))?;
+    
+    // Restart the worker if it was previously active
+    if was_active {
+        // Clear error state before restarting
+        if let Err(e) = state.db.update_worker_state(
+            &address,
+            crate::database::WorkerState::Inactive,
+            None,
+        ).await {
+            error!("[TAURI] Failed to clear error state: {}", e);
+        }
+        
+        // Start the MT5 instance (use force=false since we already cleanly stopped)
+        let updated_worker = state.db.get_worker_by_id(id).await
+            .map_err(|e| format!("Failed to get updated worker: {}", e))?
+            .ok_or_else(|| format!("Updated worker with ID {} not found", id))?;
+        
+        match InstanceManager::new(state.db.clone()) {
+            Ok(manager) => {
+                if let Err(e) = manager.start_instance(&updated_worker, false).await {
+                    warn!("[TAURI] Failed to restart MT5 instance after update: {}", e);
+                }
+            }
+            Err(e) => {
+                warn!("[TAURI] Failed to initialize instance manager for restart: {}", e);
+            }
+        }
+        
+        // Start the worker
+        let tx = state.worker_command_tx.lock().await;
+        if let Err(e) = tx.send(WorkerCommand::Start(id)).await {
+            return Err(format!("Worker updated but failed to restart: {}", e));
+        }
+    }
+    
+    Ok(ApiResponse {
+        success: true,
+        data: serde_json::json!({
+            "message": format!("Worker '{}' updated successfully{}", name, if was_active { " and restarted" } else { "" })
+        }),
+    })
 }
 
 // Delete instance

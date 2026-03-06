@@ -1,11 +1,10 @@
 import React from 'react';
-import { SystemMetrics } from '@/types/trading';
-import { formatUptime } from '@/lib/utils';
+import { SystemMetrics, Profit } from '@/types/trading';
 import { 
   Radio, 
   Network, 
   TrendingUp, 
-  Clock, 
+  DollarSign, 
   Gauge, 
   Layers,
   Wifi
@@ -13,6 +12,7 @@ import {
 
 interface MetricsPanelProps {
   metrics: SystemMetrics;
+  profits: Profit[];
   lastUpdate: Date;
 }
 
@@ -22,6 +22,9 @@ interface MetricCardProps {
   value: string | number;
   suffix?: string;
   highlight?: boolean;
+  iconBg?: string;
+  compact?: boolean;
+  valueColor?: string;
 }
 
 const MetricCard: React.FC<MetricCardProps> = ({ 
@@ -29,15 +32,18 @@ const MetricCard: React.FC<MetricCardProps> = ({
   label, 
   value, 
   suffix,
-  highlight 
+  highlight,
+  iconBg,
+  compact,
+  valueColor
 }) => (
   <div className="glass-card p-4 flex items-center gap-4 hover:bg-accent/20 transition-colors">
-    <div className={`p-2.5 rounded-lg ${highlight ? 'bg-primary/20' : 'bg-muted'}`}>
+    <div className={`p-2.5 rounded-lg ${iconBg ?? (highlight ? 'bg-primary/20' : 'bg-muted')}`}>
       {icon}
     </div>
     <div>
       <p className="metric-label">{label}</p>
-      <p className="metric-value">
+      <p className={compact ? `font-mono text-sm font-semibold ${valueColor ?? 'text-foreground'}` : 'metric-value'}>
         {value}
         {suffix && <span className="text-sm text-muted-foreground ml-1">{suffix}</span>}
       </p>
@@ -45,8 +51,8 @@ const MetricCard: React.FC<MetricCardProps> = ({
   </div>
 );
 
-const MetricsPanel: React.FC<MetricsPanelProps> = ({ metrics, lastUpdate }) => {
-  const uptime = formatUptime(metrics.uptime);
+const MetricsPanel: React.FC<MetricsPanelProps> = ({ metrics, profits, lastUpdate }) => {
+  const totalProfit = profits.reduce((sum, p) => sum + p.profit, 0);
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 p-4 bg-muted/10 border-b border-border/50">
@@ -75,19 +81,21 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ metrics, lastUpdate }) => {
         icon={<Layers className="w-5 h-5 text-muted-foreground" />}
         label="Workers"
         value={metrics.totalWorkers}
+        iconBg="bg-muted-foreground/20"
       />
 
       <MetricCard
         icon={<Network className="w-5 h-5 text-primary" />}
         label="Connections"
         value={metrics.activeConnections}
-        highlight
+        iconBg="bg-primary/20"
       />
 
       <MetricCard
         icon={<TrendingUp className="w-5 h-5 text-success" />}
         label="Signals"
         value={metrics.totalTrades}
+        iconBg="bg-success/20"
       />
 
       <MetricCard
@@ -95,13 +103,16 @@ const MetricsPanel: React.FC<MetricsPanelProps> = ({ metrics, lastUpdate }) => {
         label="Avg Latency"
         value={metrics.avgLatency}
         suffix="μs"
+        iconBg="bg-warning/20"
       />
 
       <MetricCard
-        icon={<Clock className="w-5 h-5 text-primary" />}
-        label="Uptime"
-        value={uptime.value}
-        suffix={uptime.suffix}
+        icon={<DollarSign className={`w-5 h-5 ${totalProfit >= 0 ? 'text-status-active' : 'text-status-error'}`} />}
+        label="Profit"
+        value={totalProfit.toFixed(2)}
+        iconBg={totalProfit >= 0 ? 'bg-status-active/20' : 'bg-status-error/20'}
+        valueColor={totalProfit >= 0 ? 'text-status-active' : 'text-status-error'}
+        compact
       />
 
       <div className="glass-card p-4 flex items-center gap-4">

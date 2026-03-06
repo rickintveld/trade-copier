@@ -104,70 +104,81 @@ pub async fn run_worker(
     let reader_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>> = Arc::new(Mutex::new(None));
     let reader_task_accept = reader_task.clone();
     let pending_acks_accept = pending_acks.clone();
-    let shutdown_accept = shutdown_rx.clone();
+    let mut shutdown_accept = shutdown_rx.clone();
 
     // Spawn task to accept connections
     tokio::spawn(async move {
         loop {
-            match listener.accept().await {
-                Ok((stream, addr)) => {
-                    info!("[WORKER:{}] MT5 receiver connected from {}", name_clone, addr);
-                    
-                    // Configure TCP keep-alive and socket options
-                    if let Err(e) = configure_tcp_socket(&stream) {
-                        error!("[WORKER:{}] Failed to configure socket options: {}", name_clone, e);
-                    } else {
-                        info!("[WORKER:{}] TCP keep-alive configured", name_clone);
-                    }
-                    
-                    // Split stream into independent read/write halves (no shared lock)
-                    let (read_half, write_half) = stream.into_split();
-                    *writer_accept.lock().await = Some(write_half);
-                    
-                    // Abort old reader task and spawn a new one for this connection
-                    {
-                        let mut task = reader_task_accept.lock().await;
-                        if let Some(old_task) = task.take() {
-                            old_task.abort();
+            tokio::select! {
+                result = listener.accept() => {
+                    match result {
+                        Ok((stream, addr)) => {
+                            info!("[WORKER:{}] MT5 receiver connected from {}", name_clone, addr);
+                            
+                            // Configure TCP keep-alive and socket options
+                            if let Err(e) = configure_tcp_socket(&stream) {
+                                error!("[WORKER:{}] Failed to configure socket options: {}", name_clone, e);
+                            } else {
+                                info!("[WORKER:{}] TCP keep-alive configured", name_clone);
+                            }
+                            
+                            // Split stream into independent read/write halves (no shared lock)
+                            let (read_half, write_half) = stream.into_split();
+                            *writer_accept.lock().await = Some(write_half);
+                            
+                            // Abort old reader task and spawn a new one for this connection
+                            {
+                                let mut task = reader_task_accept.lock().await;
+                                if let Some(old_task) = task.take() {
+                                    old_task.abort();
+                                }
+                                
+                                let pa = pending_acks_accept.clone();
+                                let name = name_clone.clone();
+                                let addr_str = address_clone.clone();
+                                let db = db_clone.clone();
+                                let shutdown = shutdown_accept.clone();
+                                
+                                *task = Some(tokio::spawn(async move {
+                                    read_connection(read_half, pa, name, addr_str, db, shutdown).await;
+                                }));
+                            }
+                            
+                            // Update mt5_connected to true
+                            if let Err(e) = db_clone.update_mt5_connected(&address_clone, true).await {
+                                error!("[WORKER:{}] Failed to update mt5_connected status: {}", name_clone, e);
+                            }
                         }
-                        
-                        let pa = pending_acks_accept.clone();
-                        let name = name_clone.clone();
-                        let addr_str = address_clone.clone();
-                        let db = db_clone.clone();
-                        let shutdown = shutdown_accept.clone();
-                        
-                        *task = Some(tokio::spawn(async move {
-                            read_connection(read_half, pa, name, addr_str, db, shutdown).await;
-                        }));
-                    }
-                    
-                    // Update mt5_connected to true
-                    if let Err(e) = db_clone.update_mt5_connected(&address_clone, true).await {
-                        error!("[WORKER:{}] Failed to update mt5_connected status: {}", name_clone, e);
+                        Err(e) => {
+                            let error_msg = format!("Failed to accept connection: {}", e);
+                            error!("[WORKER:{}] {}", name_clone, error_msg);
+                            if let Err(db_err) = db_clone.update_worker_state(
+                                &address_clone,
+                                WorkerState::Error,
+                                Some(&error_msg),
+                            ).await {
+                                error!("[WORKER:{}] Failed to update database: {}", name_clone, db_err);
+                            }
+                            // Log error - connection accept failed
+                            if let Err(db_err) = db_clone.insert_worker_error(
+                                &address_clone,
+                                ErrorSeverity::Error,
+                                &error_msg,
+                            ).await {
+                                error!("[WORKER:{}] Failed to log error to database: {}", name_clone, db_err);
+                            }
+                        }
                     }
                 }
-                Err(e) => {
-                    let error_msg = format!("Failed to accept connection: {}", e);
-                    error!("[WORKER:{}] {}", name_clone, error_msg);
-                    if let Err(db_err) = db_clone.update_worker_state(
-                        &address_clone,
-                        WorkerState::Error,
-                        Some(&error_msg),
-                    ).await {
-                        error!("[WORKER:{}] Failed to update database: {}", name_clone, db_err);
-                    }
-                    // Log error - connection accept failed
-                    if let Err(db_err) = db_clone.insert_worker_error(
-                        &address_clone,
-                        ErrorSeverity::Error,
-                        &error_msg,
-                    ).await {
-                        error!("[WORKER:{}] Failed to log error to database: {}", name_clone, db_err);
+                _ = shutdown_accept.changed() => {
+                    if *shutdown_accept.borrow() {
+                        info!("[WORKER:{}] Accept loop shutting down, releasing port", name_clone);
+                        break;
                     }
                 }
             }
         }
+        // `listener` is dropped here, releasing the port
     });
 
     // Process trades from broadcast channel

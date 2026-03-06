@@ -53,43 +53,37 @@ const Dashboard: React.FC = () => {
   const { workers, positions, errors, metrics, profits, isConnected, lastUpdate } = useTradingData();
   const { status: dependencyStatus } = useDependencyStatus();
   const { isEnabled } = useFeatureToggles();
-  const previousErrorsRef = useRef<typeof errors>([]);
+  const notifiedErrorsRef = useRef<Set<string>>(new Set());
+  const initialErrorsLoadedRef = useRef(false);
   const notifiedEventsRef = useRef<Set<string>>(new Set());
 
   // Show toast for critical errors (guarded by feature toggle)
   useEffect(() => {
     if (!isEnabled('error_notifications')) return;
+    if (errors.length === 0) return;
 
-    // Skip on initial mount - don't show toasts for existing errors
-    if (previousErrorsRef.current.length === 0 && errors.length > 0) {
-      previousErrorsRef.current = errors;
+    // On initial load, mark all existing errors as already notified
+    if (!initialErrorsLoadedRef.current) {
+      initialErrorsLoadedRef.current = true;
+      errors.filter(e => e.severity === 'critical').forEach(error => {
+        const errorId = `${error.id}-${error.timestamp}-${error.message}`;
+        notifiedErrorsRef.current.add(errorId);
+      });
       return;
     }
 
-    const criticalErrors = errors.filter(e => e.severity === 'critical');
-    const previousCriticalErrors = previousErrorsRef.current.filter(e => e.severity === 'critical');
-    
-    // Find errors that exist in current but not in previous
-    const newErrors = criticalErrors.filter(error => {
-      const errorId = `${error.timestamp}-${error.message}-${error.workerName || ''}`;
-      return !previousCriticalErrors.some(prevError => {
-        const prevErrorId = `${prevError.timestamp}-${prevError.message}-${prevError.workerName || ''}`;
-        return prevErrorId === errorId;
-      });
-    });
-
-    if (newErrors.length > 0) {
-      newErrors.forEach(error => {
+    // Only show toasts for critical errors we haven't notified about yet
+    errors.filter(e => e.severity === 'critical').forEach(error => {
+      const errorId = `${error.id}-${error.timestamp}-${error.message}`;
+      if (!notifiedErrorsRef.current.has(errorId)) {
+        notifiedErrorsRef.current.add(errorId);
         toast.error(error.message, {
           description: error.workerName 
             ? `Worker: ${error.workerName}` 
             : undefined,
         });
-      });
-    }
-
-    // Update ref to current errors for next comparison
-    previousErrorsRef.current = errors;
+      }
+    });
   }, [errors, isEnabled]);
 
   // Show toast for upcoming high-impact economic events (guarded by feature toggle)
@@ -176,7 +170,7 @@ const Dashboard: React.FC = () => {
         />
 
         <main className="flex-1 flex flex-col overflow-hidden">
-          <MetricsPanel metrics={metrics} lastUpdate={lastUpdate} />
+          <MetricsPanel metrics={metrics} profits={profits} lastUpdate={lastUpdate} />
 
           <Tabs defaultValue="signals" className="flex-1 flex flex-col overflow-hidden">
             <div className="px-4 border-b border-border/50 bg-card/30">

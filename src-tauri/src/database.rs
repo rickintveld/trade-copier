@@ -654,6 +654,51 @@ impl Database {
         result.map_err(|e| anyhow::anyhow!(e))
     }
     
+    /// Update editable worker settings by ID (name, address, multiplier, symbol_prefix)
+    pub async fn update_worker_settings(
+        &self,
+        id: i64,
+        name: &str,
+        address: &str,
+        multiplier: f64,
+        symbol_prefix: &str,
+    ) -> Result<()> {
+        let name = name.to_string();
+        let address = address.to_string();
+        let symbol_prefix = symbol_prefix.to_string();
+        
+        self.conn.call(move |conn| {
+            // Check if another worker already uses this address
+            let conflict: Option<i64> = conn.query_row(
+                "SELECT id FROM workers WHERE address = ?1 AND id != ?2",
+                rusqlite::params![&address, id],
+                |row| row.get(0),
+            ).ok();
+            
+            if conflict.is_some() {
+                return Err(tokio_rusqlite::Error::Rusqlite(
+                    rusqlite::Error::SqliteFailure(
+                        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                        Some(format!("Another worker already uses address '{}'", address)),
+                    )
+                ));
+            }
+            
+            let rows_affected = conn.execute(
+                "UPDATE workers SET name = ?1, address = ?2, multiplier = ?3, symbol_prefix = ?4, updated_at = CURRENT_TIMESTAMP WHERE id = ?5",
+                rusqlite::params![&name, &address, multiplier, &symbol_prefix, id],
+            )?;
+            
+            if rows_affected == 0 {
+                return Err(tokio_rusqlite::Error::Rusqlite(rusqlite::Error::QueryReturnedNoRows));
+            }
+            
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!(e))?;
+        
+        Ok(())
+    }
+    
     /// Get all worker configurations for startup (simplified version without state)
     pub async fn get_worker_configs(&self) -> Result<Vec<WorkerConfig>> {
         let result = self.conn.call(|conn| {

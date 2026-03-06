@@ -161,6 +161,7 @@ async fn main() -> Result<()> {
             tauri_commands::get_profit_history,
             tauri_commands::get_instances,
             tauri_commands::create_instance,
+            tauri_commands::update_instance,
             tauri_commands::delete_instance,
             tauri_commands::start_instance,
             tauri_commands::stop_instance,

@@ -3,13 +3,16 @@ import { Worker } from '@/types/trading';
 import { formatLatency } from '@/lib/formatters';
 import { tradeCopierApi } from '@/lib/api';
 import { Wifi, WifiOff, Activity, Clock, Gauge, Trash2, RotateCw, Loader2 } from 'lucide-react';
+import WorkerFormDialog from './WorkerFormDialog';
 
 interface WorkerCardProps {
   worker: Worker;
+  onWorkerUpdated?: () => void;
 }
 
-const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
+const WorkerCard: React.FC<WorkerCardProps> = ({ worker, onWorkerUpdated }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
@@ -90,7 +93,8 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
 
   return (
     <div
-      className={`glass-card border-l-4 p-4 transition-all duration-300 hover:bg-accent/20 ${statusColors[worker.status]}`}
+      className={`glass-card border-l-4 p-4 transition-all duration-300 hover:bg-accent/20 cursor-pointer ${statusColors[worker.status]}`}
+      onClick={() => { if (!isEditOpen) setIsEditOpen(true); }}
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
@@ -163,7 +167,7 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
         )}
       </div>
 
-      <div className="mt-3 pt-3 border-t border-border/50">
+      <div className="mt-3 pt-3 border-t border-border/50" onClick={(e) => e.stopPropagation()}>
         <div className="flex gap-2">
           {worker.status === 'active' ? (
             <button
@@ -210,7 +214,7 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
       </div>
 
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={(e) => e.stopPropagation()}>
           <div className="glass-card p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold text-foreground mb-2">
               Delete Worker
@@ -238,6 +242,14 @@ const WorkerCard: React.FC<WorkerCardProps> = ({ worker }) => {
           </div>
         </div>
       )}
+
+      <WorkerFormDialog
+        mode="edit"
+        worker={worker}
+        open={isEditOpen}
+        onOpenChange={setIsEditOpen}
+        onSuccess={onWorkerUpdated}
+      />
     </div>
   );
 };

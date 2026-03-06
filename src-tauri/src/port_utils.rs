@@ -63,11 +63,17 @@ pub async fn kill_process_on_port(port: u16) -> Result<()> {
             .output()?;
         
         if output.status.success() {
+            let own_pid = std::process::id().to_string();
             let pids = String::from_utf8_lossy(&output.stdout);
             for pid in pids.lines().filter(|line| !line.is_empty()) {
-                info!("[PORT_UTILS] Killing process {} using port {}", pid, port);
+                let pid_trimmed = pid.trim();
+                if pid_trimmed == own_pid {
+                    warn!("[PORT_UTILS] Skipping own process {} — port will be released when worker task completes", pid_trimmed);
+                    continue;
+                }
+                info!("[PORT_UTILS] Killing process {} using port {}", pid_trimmed, port);
                 let _ = Command::new("kill")
-                    .args(["-9", pid])
+                    .args(["-9", pid_trimmed])
                     .status();
             }
             return Ok(());

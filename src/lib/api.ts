@@ -135,6 +135,16 @@ export const tradeCopierApi = {
     return response.data;
   },
 
+  async updateWorker(workerId: number, data: { name: string; address: string; multiplier: number; symbol_prefix?: string }): Promise<void> {
+    await tauriInvoke('update_instance', {
+      id: workerId,
+      name: data.name,
+      address: data.address,
+      multiplier: data.multiplier,
+      symbol_prefix: data.symbol_prefix || '',
+    });
+  },
+
   async deleteWorker(workerId: number): Promise<void> {
     await tauriInvoke('delete_instance', { id: workerId, force: true });
   },
