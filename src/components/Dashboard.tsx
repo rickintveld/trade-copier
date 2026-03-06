@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTradingData } from '@/hooks/useTradingData';
 import { useDependencyStatus } from '@/hooks/useDependencyStatus';
+import { useFeatureToggles } from '@/hooks/useFeatureToggles';
 import DashboardHeader from '@/components/DashboardHeader';
 import WorkersPanel from '@/components/WorkersPanel';
 import MetricsPanel from '@/components/MetricsPanel';
@@ -13,15 +14,52 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TableProperties, AlertCircle, BarChart3, TrendingUp, CalendarDays } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
+import { invoke } from '@tauri-apps/api/core';
+
+interface EconomicEvent {
+  title: string;
+  impact: 'low' | 'medium' | 'high';
+  instrument: string;
+  restriction: boolean;
+  eventType: 'normal' | 'all-day';
+  date: string;
+}
+
+const formatDateForApi = (date: Date, isEnd: boolean = false) => {
+  const d = new Date(date);
+  if (isEnd) {
+    d.setHours(23, 59, 59, 0);
+  } else {
+    d.setHours(0, 0, 0, 0);
+  }
+
+  const offset = -d.getTimezoneOffset();
+  const sign = offset >= 0 ? '+' : '-';
+  const hours = String(Math.floor(Math.abs(offset) / 60)).padStart(2, '0');
+  const minutes = String(Math.abs(offset) % 60).padStart(2, '0');
+
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hour = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const sec = String(d.getSeconds()).padStart(2, '0');
+
+  return `${year}-${month}-${day}T${hour}:${min}:${sec}${sign}${hours}:${minutes}`;
+};
 
 const Dashboard: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { workers, positions, errors, metrics, profits, isConnected, lastUpdate } = useTradingData();
   const { status: dependencyStatus } = useDependencyStatus();
-  const previousErrorsRef = React.useRef<typeof errors>([]);
+  const { isEnabled } = useFeatureToggles();
+  const previousErrorsRef = useRef<typeof errors>([]);
+  const notifiedEventsRef = useRef<Set<string>>(new Set());
 
-  // Show toast for critical errors
-  React.useEffect(() => {
+  // Show toast for critical errors (guarded by feature toggle)
+  useEffect(() => {
+    if (!isEnabled('error_notifications')) return;
+
     // Skip on initial mount - don't show toasts for existing errors
     if (previousErrorsRef.current.length === 0 && errors.length > 0) {
       previousErrorsRef.current = errors;
@@ -52,7 +90,65 @@ const Dashboard: React.FC = () => {
 
     // Update ref to current errors for next comparison
     previousErrorsRef.current = errors;
-  }, [errors]);
+  }, [errors, isEnabled]);
+
+  // Show toast for upcoming high-impact economic events (guarded by feature toggle)
+  useEffect(() => {
+    if (!isEnabled('news_notifications')) return;
+
+    const fetchAndCheck = async () => {
+      try {
+        const now = new Date();
+        const endOfDay = new Date(now);
+        endOfDay.setHours(23, 59, 59, 0);
+
+        const dateFrom = formatDateForApi(now);
+        const dateTo = formatDateForApi(endOfDay, true);
+
+        const response = await invoke<{ success: boolean; data: { items: EconomicEvent[] } }>(
+          'fetch_economic_calendar',
+          { dateFrom, dateTo }
+        );
+
+        if (!response.success || !response.data?.items) return;
+
+        const threshold = new Date(now.getTime() + 15 * 60 * 1000);
+
+        response.data.items.forEach((event) => {
+          if (event.eventType === 'all-day') return;
+          if (event.impact !== 'high' && !event.restriction) return;
+
+          const eventTime = new Date(event.date);
+          if (eventTime <= now || eventTime > threshold) return;
+
+          const eventId = `${event.date}-${event.title}`;
+          if (notifiedEventsRef.current.has(eventId)) return;
+
+          notifiedEventsRef.current.add(eventId);
+
+          const minutesUntil = Math.round((eventTime.getTime() - now.getTime()) / 60000);
+
+          if (event.restriction) {
+            toast.error(event.title, {
+              description: `${event.instrument} — No Trading in ${minutesUntil} min`,
+            });
+          } else {
+            toast.error(event.title, {
+              description: `${event.instrument} — High impact in ${minutesUntil} min`,
+            });
+          }
+        });
+      } catch (err) {
+        if (import.meta.env.DEV) {
+          console.warn('Failed to fetch calendar for notifications:', err);
+        }
+      }
+    };
+
+    fetchAndCheck();
+    const interval = setInterval(fetchAndCheck, 60_000);
+    return () => clearInterval(interval);
+  }, [isEnabled]);
 
   return (
     <div className="flex flex-col h-screen bg-background">

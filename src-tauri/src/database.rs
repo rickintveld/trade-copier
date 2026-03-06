@@ -234,6 +234,28 @@ impl Database {
                 [],
             )?;
             
+            // Create feature_toggles table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS feature_toggles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT NOT NULL UNIQUE,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )",
+                [],
+            )?;
+            
+            // Seed default feature toggles (ignore if already exist)
+            conn.execute(
+                "INSERT OR IGNORE INTO feature_toggles (key, enabled) VALUES ('news_notifications', 1)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT OR IGNORE INTO feature_toggles (key, enabled) VALUES ('error_notifications', 1)",
+                [],
+            )?;
+            
             Ok(())
         }).await?;
         
@@ -892,6 +914,48 @@ impl Database {
         Ok(result)
     }
     
+    /// Get all feature toggles
+    pub async fn get_feature_toggles(&self) -> Result<Vec<FeatureToggleRecord>> {
+        let result = self.conn.call(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, key, enabled, created_at, updated_at FROM feature_toggles ORDER BY id ASC"
+            )?;
+            
+            let toggles = stmt.query_map([], |row| {
+                Ok(FeatureToggleRecord {
+                    id: row.get(0)?,
+                    key: row.get(1)?,
+                    enabled: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })?.collect::<Result<Vec<_>, _>>()?;
+            
+            Ok(toggles)
+        }).await?;
+        
+        Ok(result)
+    }
+    
+    /// Update a feature toggle by key
+    pub async fn update_feature_toggle(&self, key: &str, enabled: bool) -> Result<()> {
+        let key = key.to_string();
+        
+        self.conn.call(move |conn| {
+            let rows_affected = conn.execute(
+                "UPDATE feature_toggles SET enabled = ?1, updated_at = CURRENT_TIMESTAMP WHERE key = ?2",
+                rusqlite::params![enabled, &key],
+            )?;
+            
+            if rows_affected == 0 {
+                return Err(tokio_rusqlite::Error::Rusqlite(rusqlite::Error::QueryReturnedNoRows));
+            }
+            
+            Ok(())
+        }).await?;
+        
+        Ok(())
+    }
 }
 
 // API response types
@@ -995,4 +1059,13 @@ pub struct ProfitRecord {
     pub worker_address: String,
     pub profit: f64,
     pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FeatureToggleRecord {
+    pub id: i64,
+    pub key: String,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
 }

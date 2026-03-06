@@ -74,6 +74,14 @@ export interface ApiProfit {
   created_at: string;
 }
 
+export interface ApiFeatureToggle {
+  id: number;
+  key: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 async function tauriInvoke<T>(command: string, args?: any): Promise<ApiResponse<T>> {
   try {
     const response = await invoke<ApiResponse<T>>(command, args);
@@ -137,5 +145,14 @@ export const tradeCopierApi = {
       limit: limit || 1000 
     });
     return response.data;
+  },
+
+  async getFeatureToggles(): Promise<ApiFeatureToggle[]> {
+    const response = await tauriInvoke<ApiFeatureToggle[]>('get_feature_toggles');
+    return response.data;
+  },
+
+  async updateFeatureToggle(key: string, enabled: boolean): Promise<void> {
+    await tauriInvoke('update_feature_toggle', { key, enabled });
   },
 };

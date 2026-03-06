@@ -332,6 +332,36 @@ pub async fn install_dependencies(
     }
 }
 
+// Get feature toggles
+#[tauri::command]
+pub async fn get_feature_toggles(state: State<'_, AppState>) -> Result<ApiResponse<serde_json::Value>, String> {
+    match state.db.get_feature_toggles().await {
+        Ok(toggles) => Ok(ApiResponse {
+            success: true,
+            data: serde_json::to_value(toggles).map_err(|e| e.to_string())?,
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+// Update a feature toggle
+#[tauri::command]
+pub async fn update_feature_toggle(
+    state: State<'_, AppState>,
+    key: String,
+    enabled: bool,
+) -> Result<ApiResponse<serde_json::Value>, String> {
+    match state.db.update_feature_toggle(&key, enabled).await {
+        Ok(()) => Ok(ApiResponse {
+            success: true,
+            data: serde_json::json!({
+                "message": format!("Feature '{}' updated to {}", key, enabled)
+            }),
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 // Fetch economic calendar from FTMO API (bypasses CORS)
 #[tauri::command]
 pub async fn fetch_economic_calendar(

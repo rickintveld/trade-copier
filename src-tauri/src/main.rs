@@ -168,6 +168,8 @@ async fn main() -> Result<()> {
             tauri_commands::check_dependencies,
             tauri_commands::install_dependencies,
             tauri_commands::fetch_economic_calendar,
+            tauri_commands::get_feature_toggles,
+            tauri_commands::update_feature_toggle,
         ])
         .setup(move |app| {
             info!("Tauri app initialized");

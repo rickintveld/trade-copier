@@ -6,7 +6,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, Calendar, Clock, Ban, Droplet, Flame } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'sonner';
 
 interface EconomicEvent {
   title: string;
@@ -366,46 +365,6 @@ const EconomicCalendar: React.FC = () => {
 
   const eventRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const lastScrolledKey = useRef<string | null>(null);
-  const notifiedEventsRef = useRef<Set<string>>(new Set());
-
-  // Show toast for upcoming high-impact or restriction events (within 15 minutes)
-  useEffect(() => {
-    if (loading || events.length === 0) return;
-
-    const checkUpcomingEvents = () => {
-      const now = new Date();
-      const threshold = new Date(now.getTime() + 15 * 60 * 1000);
-
-      events.forEach((event) => {
-        if (event.eventType === 'all-day') return;
-        if (event.impact !== 'high' && !event.restriction) return;
-
-        const eventTime = new Date(event.date);
-        if (eventTime <= now || eventTime > threshold) return;
-
-        const eventId = `${event.date}-${event.title}`;
-        if (notifiedEventsRef.current.has(eventId)) return;
-
-        notifiedEventsRef.current.add(eventId);
-
-        const minutesUntil = Math.round((eventTime.getTime() - now.getTime()) / 60000);
-
-        if (event.restriction) {
-          toast.error(event.title, {
-            description: `${event.instrument} — No Trading in ${minutesUntil} min`,
-          });
-        } else {
-          toast.error(event.title, {
-            description: `${event.instrument} — High impact in ${minutesUntil} min`,
-          });
-        }
-      });
-    };
-
-    checkUpcomingEvents();
-    const interval = setInterval(checkUpcomingEvents, 60_000);
-    return () => clearInterval(interval);
-  }, [loading, events]);
 
   const setEventRef = useCallback((key: string, el: HTMLDivElement | null) => {
     if (el) {

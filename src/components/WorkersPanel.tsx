@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { Worker } from '@/types/trading';
 import WorkerCard from './WorkerCard';
-import { Users, ChevronLeft, ChevronRight, Plus, PlayCircle, BookOpen } from 'lucide-react';
+import { Users, ChevronLeft, ChevronRight, Plus, PlayCircle, BookOpen, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DependencyCheckModal } from './DependencyCheckModal';
+import { SettingsModal } from './SettingsModal';
 import {
   Dialog,
   DialogContent,
@@ -49,6 +50,7 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
   const [submitError, setSubmitError] = useState('');
   const [appVersion, setAppVersion] = useState<string>('');
   const [isSetupGuideOpen, setIsSetupGuideOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const activeCount = workers.filter(w => w.status === 'active').length;
   const errorCount = workers.filter(w => w.status === 'error').length;
@@ -273,6 +275,10 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
             isOpen={isSetupGuideOpen} 
             onOpenChange={setIsSetupGuideOpen}
           />
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onOpenChange={setIsSettingsOpen}
+          />
 
           <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-3">
             {workers.map((worker) => (
@@ -280,15 +286,26 @@ const WorkersPanel: React.FC<WorkersPanelProps> = ({
             ))}
           </div>
 
-          <Button 
-            className="w-full" 
-            variant="ghost" 
-            size="sm"
-            onClick={() => setIsSetupGuideOpen(true)}
-          >
-            <BookOpen className="w-4 h-4 mr-2" />
-            Setup Guide
-          </Button>
+          <div className="px-3 pb-2 space-y-1">
+            <Button 
+              className="w-full" 
+              variant="ghost" 
+              size="sm"
+              onClick={() => setIsSettingsOpen(true)}
+            >
+              <Settings className="w-4 h-4 mr-2" />
+              Settings
+            </Button>
+            <Button 
+              className="w-full" 
+              variant="ghost" 
+              size="sm"
+              onClick={() => setIsSetupGuideOpen(true)}
+            >
+              <BookOpen className="w-4 h-4 mr-2" />
+              Setup Guide
+            </Button>
+          </div>
 
           {appVersion && (
             <div className="mt-auto p-3 border-t border-border/50">
