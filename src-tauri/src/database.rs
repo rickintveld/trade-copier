@@ -917,32 +917,7 @@ impl Database {
         let limit = limit.unwrap_or(1000);
         
         let result = self.conn.call(move |conn| {
-            let query = if let Some(wid) = worker_id {
-                format!(
-                    "SELECT p.id, p.worker_id, w.name as worker_name, w.address as worker_address,
-                            p.profit, p.created_at
-                     FROM profits p
-                     JOIN workers w ON p.worker_id = w.id
-                     WHERE p.worker_id = {}
-                     ORDER BY p.created_at ASC
-                     LIMIT {}",
-                    wid, limit
-                )
-            } else {
-                format!(
-                    "SELECT p.id, p.worker_id, w.name as worker_name, w.address as worker_address,
-                            p.profit, p.created_at
-                     FROM profits p
-                     JOIN workers w ON p.worker_id = w.id
-                     ORDER BY p.created_at ASC
-                     LIMIT {}",
-                    limit
-                )
-            };
-            
-            let mut stmt = conn.prepare(&query)?;
-            
-            let profits = stmt.query_map([], |row| {
+            let map_row = |row: &rusqlite::Row| -> rusqlite::Result<ProfitRecord> {
                 Ok(ProfitRecord {
                     id: row.get(0)?,
                     worker_id: row.get(1)?,
@@ -951,7 +926,34 @@ impl Database {
                     profit: row.get(4)?,
                     created_at: row.get(5)?,
                 })
-            })?.collect::<Result<Vec<_>, _>>()?;
+            };
+            
+            let profits = if let Some(wid) = worker_id {
+                let mut stmt = conn.prepare(
+                    "SELECT p.id, p.worker_id, w.name as worker_name, w.address as worker_address,
+                            p.profit, p.created_at
+                     FROM profits p
+                     JOIN workers w ON p.worker_id = w.id
+                     WHERE p.worker_id = ?1
+                     ORDER BY p.created_at ASC
+                     LIMIT ?2"
+                )?;
+                let rows = stmt.query_map(rusqlite::params![wid, limit], map_row)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            } else {
+                let mut stmt = conn.prepare(
+                    "SELECT p.id, p.worker_id, w.name as worker_name, w.address as worker_address,
+                            p.profit, p.created_at
+                     FROM profits p
+                     JOIN workers w ON p.worker_id = w.id
+                     ORDER BY p.created_at ASC
+                     LIMIT ?1"
+                )?;
+                let rows = stmt.query_map(rusqlite::params![limit], map_row)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            };
             
             Ok(profits)
         }).await?;

@@ -2,7 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { Profit } from '@/types/trading';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 import {
   format,
   startOfMonth,
@@ -90,6 +92,38 @@ const ProfitChart: React.FC<ProfitChartProps> = ({ profits }) => {
   const goToNextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
   const goToToday = () => setCurrentMonth(new Date());
 
+  const handleExport = async () => {
+    try {
+      const rows = calendarDays
+        .filter((day) => isSameMonth(day, currentMonth))
+        .map((day) => {
+          const dateKey = format(day, 'yyyy-MM-dd');
+          const dayData = dailyData.get(dateKey);
+          return [
+            dateKey,
+            dayData?.trades ?? 0,
+            dayData?.profit?.toFixed(2) ?? '0.00',
+          ].join(',');
+        });
+
+      const csv = ['Date,Trades,Profit', ...rows].join('\n');
+      const monthLabel = format(currentMonth, 'yyyy-MM');
+
+      const filePath = await save({
+        defaultPath: `profits-${monthLabel}.csv`,
+        filters: [{ name: 'CSV', extensions: ['csv'] }],
+      });
+
+      if (filePath) {
+        await writeTextFile(filePath, csv);
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.error('Failed to export CSV:', error);
+      }
+    }
+  };
+
   if (profits.length === 0) {
     return (
       <div className="flex flex-col h-full items-center justify-center p-8">
@@ -111,6 +145,15 @@ const ProfitChart: React.FC<ProfitChartProps> = ({ profits }) => {
             <div className="flex items-center justify-between">
               <CardTitle className="text-xl">Profit Calendar</CardTitle>
               <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExport}
+                  className="h-8 text-xs"
+                >
+                  <Download className="w-3 h-3 mr-1" />
+                  Export
+                </Button>
                 <Button
                   variant="outline"
                   size="icon"

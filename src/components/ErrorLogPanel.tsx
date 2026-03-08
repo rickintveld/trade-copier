@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { ErrorLog } from '@/types/trading';
 import { formatDateTime } from '@/lib/formatters';
-import { AlertTriangle, AlertCircle, XCircle, Search } from 'lucide-react';
+import { AlertTriangle, AlertCircle, XCircle, Search, Download } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 import {
   Select,
   SelectContent,
@@ -43,6 +46,41 @@ const ErrorLogPanel: React.FC<ErrorLogPanelProps> = ({ errors }) => {
     }
     return true;
   });
+
+  const handleExport = async () => {
+    try {
+      const escapeCSV = (val: string) => {
+        if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val;
+      };
+
+      const csv = [
+        ['Timestamp', 'Severity', 'Type', 'Worker', 'Message'].join(','),
+        ...filteredErrors.map(e => [
+          formatDateTime(e.timestamp),
+          e.severity,
+          e.type,
+          e.workerName ?? '',
+          escapeCSV(e.message),
+        ].join(','))
+      ].join('\n');
+
+      const filePath = await save({
+        defaultPath: `errors-${Date.now()}.csv`,
+        filters: [{ name: 'CSV', extensions: ['csv'] }],
+      });
+
+      if (filePath) {
+        await writeTextFile(filePath, csv);
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.error('Failed to export CSV:', error);
+      }
+    }
+  };
 
   const severityCounts = {
     warning: errors.filter(e => e.severity === 'warning').length,
@@ -117,6 +155,16 @@ const ErrorLogPanel: React.FC<ErrorLogPanelProps> = ({ errors }) => {
             <SelectItem value="channel">Channel</SelectItem>
           </SelectContent>
         </Select>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExport}
+          className="ml-auto h-8 text-xs"
+        >
+          <Download className="w-3 h-3 mr-1" />
+          Export
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">

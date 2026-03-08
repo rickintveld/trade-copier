@@ -66,7 +66,7 @@
       "endpoints": [
         "https://github.com/rickintveld/trade-copier/releases/latest/download/latest.json"
       ],
-      "pubkey": "YOUR_PUBLIC_KEY_HERE"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIwNkQyRjk2MUY2NEJGM0YKUldRL3YyUWZsaTl0SU1ObFhZK0NjV2lIYXNUeUxTcmhIUDMxNXVpakJBVWRUekd4bmRWRG5xV08K"
     }
   }
 }
