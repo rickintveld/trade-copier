@@ -28,7 +28,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             <img 
               src="/logo.svg" 
               alt="Trading Rocket" 
-              className="h-8 w-auto"
+              className="h-6 w-auto"
             />
           </div>
         </div>
