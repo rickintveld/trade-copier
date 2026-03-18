@@ -25,11 +25,13 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         
         <div className="flex items-center gap-3">
           <div className="relative">
-            <img 
-              src="/logo.svg" 
-              alt="Trading Rocket" 
-              className="h-6 w-auto"
-            />
+            <a href="https://www.trading-rocket.nl/" target='_blank' rel="noopener noreferrer">
+              <img 
+                src="/logo.svg" 
+                alt="Trading Rocket" 
+                className="h-5 w-auto"
+              />
+            </a>
           </div>
         </div>
       </div>
