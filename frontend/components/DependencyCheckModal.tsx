@@ -4,7 +4,6 @@ import { useDependencyStatus } from "@/hooks/useDependencyStatus";
 import { CheckCircle2, ExternalLink, AlertCircle, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { stat } from "fs";
 
 const SetupStep = ({ 
   number, 

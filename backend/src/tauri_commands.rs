@@ -103,21 +103,6 @@ pub async fn get_profit_history(
     }
 }
 
-// Get all instances
-#[tauri::command]
-pub async fn get_instances(state: State<'_, AppState>) -> Result<ApiResponse<serde_json::Value>, String> {
-    match InstanceManager::new(state.db.clone()) {
-        Ok(manager) => match manager.list_instances().await {
-            Ok(instances) => Ok(ApiResponse {
-                success: true,
-                data: serde_json::to_value(instances).map_err(|e| e.to_string())?,
-            }),
-            Err(e) => Err(e.to_string()),
-        },
-        Err(e) => Err(format!("Failed to initialize instance manager: {}", e)),
-    }
-}
-
 // Create new instance
 #[tauri::command]
 pub async fn create_instance(

@@ -65,7 +65,7 @@ fn get_ea_source_path() -> Result<PathBuf> {
     // Try multiple possible locations for the source directory
     let candidates = vec![
         // 1. Development mode - relative to project root
-        PathBuf::from("./src-tauri/src/mql5/Trading Rocket"),
+        PathBuf::from("./backend/src/mql5/Trading Rocket"),
         
         // 2. Development mode - when running from src-tauri directory
         PathBuf::from("./src/mql5/Trading Rocket"),

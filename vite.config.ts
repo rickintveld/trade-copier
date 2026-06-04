@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(__dirname, "./frontend"),
     },
   },
   // Prevent vite from obscuring rust errors

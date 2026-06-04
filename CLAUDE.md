@@ -50,13 +50,13 @@ Master MT5 (Signal Provider EA)
 
 The project is a **Cargo workspace** with two members:
 - Root directory: Contains frontend code (React/TypeScript)
-- `src-tauri/`: Contains Rust backend code (Tauri backend)
+- `backend/`: Contains Rust backend code (Tauri backend)
 
 Each has its own `Cargo.toml` and `package.json` respectively.
 
 ## Key Components
 
-### Frontend (`/src`)
+### Frontend (`/frontend`)
 
 **Pages:**
 - `pages/Index.tsx` - Main dashboard (single-page app)
@@ -85,7 +85,7 @@ Each has its own `Cargo.toml` and `package.json` respectively.
 - Calls backend Tauri commands (e.g., `get_workers`, `start_instance`, `create_instance`)
 - Response types align with backend Rust data structures
 
-### Backend (`/src-tauri/src`)
+### Backend (`/backend/src`)
 
 **Core Modules:**
 
@@ -155,7 +155,7 @@ Each has its own `Cargo.toml` and `package.json` respectively.
    - `InstanceManager` handles platform-specific behavior
 
 9. **`ea_sync.rs`** - Expert Advisor synchronization
-   - On startup, copies MQL5 EAs from `src-tauri/src/mql5/` to master MT5's EA folder
+   - On startup, copies MQL5 EAs from `backend/src/mql5/` to master MT5's EA folder
    - Detects MT5 installation on Windows/macOS
    - Ensures latest EA code is available in master terminal
 
@@ -169,7 +169,7 @@ Each has its own `Cargo.toml` and `package.json` respectively.
     - `SlaveConfig`: Worker configuration with validation
     - `ProfitInfo`: Profit tracking struct
 
-**MQL5 Expert Advisors (`/src-tauri/src/mql5/`):**
+**MQL5 Expert Advisors (`/backend/src/mql5/`):**
 - Signal Provider EA: Runs in master MT5, sends trades to Router on port 5000
 - Signal Receiver EA: Runs in slave MT5 terminals, receives trades from Worker, applies risk multiplier
 
@@ -228,7 +228,7 @@ cargo check
 ESLint is configured via `eslint.config.js`. There is no `lint` or `format` npm script — run ESLint directly:
 
 ```bash
-npx eslint src/
+npx eslint frontend/
 cargo fmt        # Rust formatting
 cargo clippy     # Rust linting
 ```
@@ -306,17 +306,17 @@ Prevents orphaned Wine processes and ensures clean database state.
 
 | File | Purpose |
 |------|---------|
-| `src/App.tsx` | Root React component, Tauri IPC setup |
-| `src/pages/Index.tsx` | Entry point (renders Dashboard) |
-| `src/components/Dashboard.tsx` | Main UI layout with tabs |
-| `src/lib/api.ts` | Tauri IPC wrapper |
-| `src/hooks/useTradingData.ts` | Core data polling and transformation |
-| `src-tauri/src/main.rs` | App initialization, background tasks |
-| `src-tauri/src/router.rs` | Master MT5 TCP listener |
-| `src-tauri/src/worker.rs` | Individual worker TCP server |
-| `src-tauri/src/worker_manager.rs` | Worker lifecycle management |
-| `src-tauri/src/database.rs` | SQLite schema and queries |
-| `src-tauri/src/tauri_commands.rs` | IPC command implementations |
+| `frontend/App.tsx` | Root React component, Tauri IPC setup |
+| `frontend/pages/Index.tsx` | Entry point (renders Dashboard) |
+| `frontend/components/Dashboard.tsx` | Main UI layout with tabs |
+| `frontend/lib/api.ts` | Tauri IPC wrapper |
+| `frontend/hooks/useTradingData.ts` | Core data polling and transformation |
+| `backend/src/main.rs` | App initialization, background tasks |
+| `backend/src/router.rs` | Master MT5 TCP listener |
+| `backend/src/worker.rs` | Individual worker TCP server |
+| `backend/src/worker_manager.rs` | Worker lifecycle management |
+| `backend/src/database.rs` | SQLite schema and queries |
+| `backend/src/tauri_commands.rs` | IPC command implementations |
 | `vite.config.ts` | Frontend build config (Tauri Chromium/WebKit targets) |
 | `tsconfig.json` | TypeScript config (relaxed strict mode) |
 | `tailwind.config.ts` | Custom colors for trading UI (buy/sell/open/close) |
@@ -348,7 +348,7 @@ const response = await invoke<ApiResponse<T>>('my_command', { /* args */ });
 
 ### Adding a New Dashboard Component
 
-1. Create component in `src/components/`
+1. Create component in `frontend/components/`
 2. Import in `Dashboard.tsx`
 3. Add Tab in TabsContent (or integrate into existing component)
 4. Hook up data from `useTradingData()` or create new custom hook
@@ -434,9 +434,9 @@ ss -tlnp | grep :5000
 npm run tauri:build
 ```
 
-Creates native installers (.dmg on macOS, .exe on Windows, .deb on Linux) in `src-tauri/target/release/bundle/`.
+Creates native installers (.dmg on macOS, .exe on Windows, .deb on Linux) in `backend/target/release/bundle/`.
 
-Configured in `src-tauri/tauri.conf.json` with:
+Configured in `backend/tauri.conf.json` with:
 - Auto-update via GitHub releases
 - Code signing setup (empty by default)
 - App icon and metadata
