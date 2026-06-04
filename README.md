@@ -1,30 +1,19 @@
-# Trade Copier Documentation
+# Trade Copier
 
-## Overview
+A desktop application for replicating MetaTrader 5 (MT5) trades across multiple terminals in real-time. A master MT5 terminal broadcasts trading signals to any number of slave terminals, each with an independently configured risk multiplier.
 
-Trade Copier is a high-performance Rust-based service that replicates MetaTrader 5 (MT5) trades across multiple MT5 instances. It enables a master MT5 terminal to broadcast trading signals to multiple slave terminals in real-time with risk multiplier support.
+Built with Rust + Tauri 2 + React.
 
 ## Architecture
-
-The system consists of several key components:
-
-1. **Router** - TCP server that receives trades from the master MT5 terminal
-2. **Workers** - TCP servers that forward trades to individual slave MT5 terminals
-3. **Worker Manager** - Manages the lifecycle of worker instances
-4. **Database** - SQLite database for configuration, metrics, and audit logging
-5. **HTTP API** - RESTful API for management and monitoring
-6. **MQL5 Expert Advisors** - MT5 plugins for signal provider and receivers
-
-## System Flow
 
 ```
 Master MT5 (Signal Provider EA)
          |
          | TCP (port 5000)
          v
-    Router (Rust)
+    Router (Rust/Tokio)
          |
-         | Broadcast Channel
+         | Broadcast channel
          v
    Worker Manager
          |
@@ -33,75 +22,54 @@ Master MT5 (Signal Provider EA)
          +---> Worker N (TCP) ---> Slave MT5 #N (Signal Receiver EA)
 ```
 
+The React dashboard communicates with the Rust backend via Tauri IPC — no HTTP API.
+
 ## Features
 
-- **Real-time Trade Copying**: Instant replication of trades across multiple terminals
-- **Risk Multiplier**: Configure individual lot size multipliers per worker
-- **Trade Operations**: Support for open, close, partial close, and modify operations
-- **Latency Tracking**: Monitor performance with microsecond precision
-- **Connection Resilience**: Automatic reconnection handling
-- **MT5 Instance Management**: Automated Wine-based MT5 installation on macOS
-- **Automatic Dependency Installation**: Automatically installs Wine and Homebrew on macOS when needed
-- **Automatic EA Synchronization**: Expert Advisors are automatically copied to master MT5 on startup
-- **RESTful API**: Full HTTP API for configuration and monitoring
-- **Audit Logging**: Complete trade history and error tracking
-- **System Metrics**: Real-time status, uptime, and worker health monitoring
+- **Real-time trade copying** — instant replication of open, close, partial close, and modify operations
+- **Per-worker risk multiplier** — configure individual lot size scaling per slave terminal
+- **Latency tracking** — microsecond-precision latency monitoring per worker
+- **MT5 instance management** — automated Wine-based MT5 installation on macOS
+- **Automatic dependency installation** — installs Wine and Homebrew on macOS when needed
+- **Automatic EA sync** — Expert Advisors are copied to the master MT5 on startup
+- **Audit logging** — full trade history, error log, and system metrics persisted in SQLite
 
-## Quick Start
+## Prerequisites
 
-### Prerequisites
-
-- Rust (latest stable)
+- [Rust](https://rustup.rs/) (latest stable)
+- [Node.js](https://nodejs.org/) (v18+)
+- [Tauri CLI prerequisites](https://tauri.app/start/prerequisites/) for your platform
 - MetaTrader 5
 
-**Note for macOS users**: Wine and Homebrew will be automatically installed when you create your first MT5 instance if they are not already present on your system.
+> **macOS users:** Wine and Homebrew are installed automatically when you create your first MT5 instance.
 
-### Running the Service
+## Development
 
 ```bash
-cargo build --release
-./target/release/trade-copier
+npm install
+npm run tauri:dev
 ```
 
-The service will start:
-- TCP Router on port **5000** (for master MT5 connection)
-- HTTP API on port **3000** (for management)
-- Individual worker TCP servers on configured ports
+## Build
 
-## Documentation Structure
+```bash
+npm run tauri:build
+```
 
-- [Database](./docs/database.md) - Database schema and operations
-- [Router](./docs/router.md) - Trade routing and broadcasting
-- [Workers](./docs/workers.md) - Worker lifecycle and trade forwarding
-- [API](./docs/api.md) - HTTP API endpoints and usage
-- [Automatic Dependency Installation](./docs/automatic-dependency-installation.md) - Wine and Homebrew auto-installation
-- [Expert Advisor Synchronization](./docs/EA_SYNC.md) - Automatic EA updates to master MT5 on startup
-- [MQL5 Expert Advisors](./docs/mql5-expert-advisors.md) - MT5 plugins documentation
-  - [Signal Provider Setup](./docs/mql5-signal-provider.md) - Master EA configuration
-  - [Signal Receiver Setup](./docs/mql5-signal-receiver.md) - Slave EA configuration and README
+Produces a native installer in `backend/target/release/bundle/` (`.dmg` on macOS, `.exe` on Windows, `.deb` on Linux).
 
-## Configuration
+## Documentation
 
-Worker configurations are stored in the SQLite database (`trade_copier.db`) and can be managed through:
-- HTTP API endpoints (recommended)
-- Direct database access (not recommended)
-
-Each worker configuration includes:
-- **Name**: Unique identifier
-- **Address**: TCP bind address (e.g., `127.0.0.1:5050`)
-- **Multiplier**: Risk multiplier for lot sizes (e.g., `0.5` for half size)
-- **Wine Prefix**: Path to MT5 Wine installation (macOS only)
-
-## Monitoring
-
-Access the HTTP API at `http://localhost:3000`:
-
-- `GET /api/health` - Service health check
-- `GET /api/workers` - List all workers and their status
-- `GET /api/trades` - View trade history
-- `GET /api/errors` - View error logs
-- `GET /api/system/metrics` - System metrics and uptime
-
-## Support
-
-For issues and questions, please refer to the individual documentation files for detailed information on each component.
+- [Quick Start](./docs/quickstart.md)
+- [Database schema](./docs/database.md)
+- [Router](./docs/router.md)
+- [Workers](./docs/workers.md)
+- [API (Tauri IPC commands)](./docs/api.md)
+- [EA synchronization](./docs/ea-sync.md)
+- [Automatic dependency installation](./docs/automatic-dependency-installation.md)
+- [MQL5 Expert Advisors](./docs/mql5-expert-advisors.md)
+  - [Signal Provider](./docs/mql5-signal-provider.md)
+  - [Signal Receiver](./docs/mql5-signal-receiver.md)
+- [Release guide](./docs/release.md)
+- [Privacy Policy](./docs/privacy-policy.md)
+- [Terms of Service](./docs/terms-of-service.md)
