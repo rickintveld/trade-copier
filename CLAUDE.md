@@ -16,14 +16,19 @@ npm run tauri:dev      # Rust backend + Vite dev server (localhost:1420)
 npm run tauri:build    # Release bundle (.dmg / .exe / .msi)
 npm run build          # Frontend only -> dist/
 
+npm run typecheck      # tsc (strict) for app + node configs
+npm run lint           # eslint frontend/
+npm test               # Vitest (jsdom, TZ=UTC); npm run test:watch for watch mode
+
 cargo check            # Run from repo root (Cargo workspace, single member: backend/)
 cargo test
-cargo test test_slave_config_validation_valid   # Single test
-cargo fmt && cargo clippy
-npx eslint frontend/   # No npm lint script exists
+cargo test adjust_applies_multiplier   # Single test (substring match)
+cargo fmt --check && cargo clippy --all-targets -- -D warnings
 ```
 
-Rust unit tests exist only in `backend/src/types.rs` and `backend/src/ea_sync.rs`. There is no frontend test setup.
+CI (`.github/workflows/ci.yml`) runs all of the above on every PR: frontend on Ubuntu, Rust on macOS and Windows. Keep both at zero warnings.
+
+Tests: Rust tests are `#[cfg(test)] mod tests` inside each module (binary crate, so no `tests/` dir); DB tests use `Database::new(":memory:")`, network tests bind `127.0.0.1:0` (never fixed ports — `bind_with_retry` may kill the holder). Frontend tests are `*.test.ts(x)` next to the code and mock the Tauri boundary (`@tauri-apps/api/core` or `@/lib/api`).
 
 Logging: `env_logger` is only initialized in debug builds (`#[cfg(debug_assertions)]` in `main.rs`), so release binaries produce no log output regardless of `RUST_LOG`.
 
@@ -54,9 +59,21 @@ All access is async via `tokio-rusqlite`. The schema is created in `Database::ne
 
 ### Frontend ↔ backend
 
-There is no HTTP API; everything goes through Tauri IPC. Adding a command means: implement `#[tauri::command]` in `tauri_commands.rs` returning `ApiResponse<T>`, register it in the `generate_handler!` list in `main.rs`, and add a typed wrapper to `tradeCopierApi` in `frontend/lib/api.ts` (whose `Api*` interfaces mirror the Rust structs in snake_case).
+There is no HTTP API; everything goes through Tauri IPC. Adding a command means: implement `#[tauri::command]` in `tauri_commands.rs` returning `ApiResponse<T>`, register it in the `generate_handler!` list in `main.rs`, and add a typed wrapper to `tradeCopierApi` in `frontend/lib/api.ts` (whose `Api*` interfaces mirror the Rust structs in snake_case). See the `add-tauri-command` skill.
 
-`frontend/hooks/useTradingData.ts` polls the backend every 2s with `setInterval` (not React Query) and transforms `Api*` types into the camelCase types in `frontend/types/trading.ts`. SQLite `CURRENT_TIMESTAMP` values are UTC without a zone, so they are parsed by appending `Z` — use `parseUTCTimestamp` for any new timestamp field.
+**Invoke argument keys must be camelCase** (`{ workerId, symbolPrefix }`): Tauri 2 maps them to snake_case Rust params and silently drops snake_case keys. `frontend/lib/api.test.ts` guards this.
+
+`frontend/hooks/useTradingData.ts` polls the backend every 2s with `setInterval` (not React Query); the pure transforms from `Api*` types to the camelCase types in `frontend/types/trading.ts` live in `frontend/lib/transforms.ts`. SQLite `CURRENT_TIMESTAMP` values are UTC without a zone — parse every timestamp with `parseUTCTimestamp` from `frontend/lib/time.ts`.
+
+## Claude Code agents and skills
+
+Project agents live in `.claude/agents/`:
+
+- `rust-senior` — implements backend work; writes only `backend/`, `Cargo.*`, `docs/`.
+- `react-senior` — implements frontend work; writes only `frontend/`, frontend configs, `docs/`.
+- `rust-reviewer` / `react-reviewer` — read-only reviewers that report ranked findings.
+
+The builders can read across the whole repo, but a `PreToolUse` hook (`.claude/hooks/guard-scope.sh`) blocks writes outside their domain. For a cross-cutting feature, run `rust-senior` first; it ends with a hand-off describing the IPC contract, which goes to `react-senior`. Then run both reviewers. Skills in `.claude/skills/` (`add-tauri-command`, `add-db-column`, `change-trade-wire-format`) hold the checklists for the risky cross-layer changes. `.claude/settings.json` pre-allows the verification commands and runs rustfmt on edited `.rs` files.
 
 ## Release
 
