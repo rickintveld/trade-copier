@@ -23,7 +23,7 @@ function transformWorker(apiWorker: ApiWorker): Worker {
     mt5Connected: apiWorker.mt5_connected,
     lastConnectionTime: parseUTCTimestamp(apiWorker.created_at),
     lastActivity: parseUTCTimestamp(apiWorker.updated_at),
-    latency: apiWorker.latency_us > 0 ? Math.round(apiWorker.latency_us / 1000) : 0,
+    latency: apiWorker.latency_us && apiWorker.latency_us > 0 ? Math.round(apiWorker.latency_us / 1000) : 0,
     symbolPrefix: apiWorker.symbol_prefix
   };
 }

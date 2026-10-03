@@ -419,7 +419,7 @@ const EconomicCalendar: React.FC = () => {
       clearTimeout(timeout);
       clearInterval(interval);
     };
-  }, [loading, groupedEvents]);
+  }, [shouldAutoScroll, loading, groupedEvents]);
 
   const restrictionCount = useMemo(() => {
     return filteredEvents.filter((e) => e.restriction).length;

@@ -22,7 +22,7 @@ export const formatRelativeTime = (date: Date | string): string => {
   return formatDistanceToNow(localDate, { addSuffix: true });
 };
 
-export const formatPrice = (price: number, symbol: string): number => {
+export const formatPrice = (price: number, _symbol: string): number => {
   return price;
 };
 
