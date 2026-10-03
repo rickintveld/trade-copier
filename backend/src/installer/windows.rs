@@ -143,12 +143,8 @@ impl WindowsInstanceManager {
                 let exe_path_str = exe_path.to_string_lossy().replace("\\", "\\\\");
 
                 // Query for processes with this specific executable path
-                let query = format!(
-                    "process where ExecutablePath='{}' get ProcessId",
-                    exe_path_str
-                );
                 let output = Command::new("wmic")
-                    .args(&[
+                    .args([
                         "process",
                         "where",
                         &format!("ExecutablePath='{}'", exe_path_str),
@@ -164,7 +160,7 @@ impl WindowsInstanceManager {
                         // Skip header
                         if let Ok(pid) = line.trim().parse::<u32>() {
                             let _ = Command::new("taskkill")
-                                .args(&["/F", "/PID", &pid.to_string()])
+                                .args(["/F", "/PID", &pid.to_string()])
                                 .output();
                             info!(
                                 "[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'",
@@ -221,7 +217,7 @@ impl WindowsInstanceManager {
 
                 // Query for processes with this specific executable path
                 let output = Command::new("wmic")
-                    .args(&[
+                    .args([
                         "process",
                         "where",
                         &format!("ExecutablePath='{}'", exe_path_str),
@@ -237,7 +233,7 @@ impl WindowsInstanceManager {
                         // Skip header
                         if let Ok(pid) = line.trim().parse::<u32>() {
                             let _ = Command::new("taskkill")
-                                .args(&["/F", "/PID", &pid.to_string()])
+                                .args(["/F", "/PID", &pid.to_string()])
                                 .output();
                             info!(
                                 "[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'",
@@ -293,7 +289,7 @@ impl WindowsInstanceManager {
                 .to_str()
                 .context("Invalid UTF-8 in executable path")?;
             if let Err(e) = Command::new("cmd")
-                .args(&["/C", "start", "", exe_path_str])
+                .args(["/C", "start", "", exe_path_str])
                 .spawn()
                 .context(format!("Failed to launch instance '{}'", worker.name))
             {
@@ -343,7 +339,7 @@ impl WindowsInstanceManager {
 
             // Query for processes with this specific executable path
             let output = Command::new("wmic")
-                .args(&[
+                .args([
                     "process",
                     "where",
                     &format!("ExecutablePath='{}'", exe_path_str),
@@ -360,7 +356,7 @@ impl WindowsInstanceManager {
                     // Skip header
                     if let Ok(pid) = line.trim().parse::<u32>() {
                         let _ = Command::new("taskkill")
-                            .args(&["/F", "/PID", &pid.to_string()])
+                            .args(["/F", "/PID", &pid.to_string()])
                             .output();
                         info!(
                             "[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'",

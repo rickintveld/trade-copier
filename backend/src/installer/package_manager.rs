@@ -1,5 +1,8 @@
 use anyhow::{bail, Context, Result};
-use log::{info, warn};
+use log::info;
+#[cfg(target_os = "macos")]
+use log::warn;
+#[cfg(target_os = "macos")]
 use std::io::Write;
 use std::process::Command;
 
@@ -254,37 +257,4 @@ pub fn install_chocolatey() -> Result<()> {
 
     info!("[INSTALLER] Chocolatey installed successfully");
     Ok(())
-}
-
-#[cfg(target_os = "windows")]
-pub fn ensure_chocolatey_installed() -> Result<()> {
-    if is_chocolatey_installed() {
-        return Ok(());
-    }
-
-    info!("[INSTALLER] ═══════════════════════════════════════════════════════");
-    info!("[INSTALLER] Chocolatey package manager is not installed");
-    info!("[INSTALLER] ═══════════════════════════════════════════════════════");
-
-    print!("[INSTALLER] Do you want to install Chocolatey now? This requires administrator privileges. (y/n): ");
-    std::io::stdout()
-        .flush()
-        .context("Failed to flush stdout")?;
-
-    let mut input = String::new();
-    std::io::stdin()
-        .read_line(&mut input)
-        .context("Failed to read user input")?;
-
-    let input = input.trim().to_lowercase();
-
-    if input == "y" || input == "yes" {
-        install_chocolatey()?;
-        info!("[INSTALLER] ═══════════════════════════════════════════════════════");
-        info!("[INSTALLER] Chocolatey installation complete!");
-        info!("[INSTALLER] ═══════════════════════════════════════════════════════");
-        Ok(())
-    } else {
-        bail!("Chocolatey installation cancelled by user");
-    }
 }

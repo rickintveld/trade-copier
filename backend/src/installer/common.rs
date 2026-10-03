@@ -248,8 +248,10 @@ pub fn copy_default_template(wine_prefix: &Path, worker_address: &str) -> Result
 
     // Decode from UTF-16LE: convert pairs of bytes to u16 values
     let u16_vec: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&pair| u16::from_le_bytes(pair))
         .collect();
 
     let template_content =

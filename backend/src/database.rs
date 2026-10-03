@@ -423,7 +423,6 @@ impl Database {
             total_workers,
             active_workers,
             uptime_seconds,
-            provider_connected,
         } = update;
 
         // Calculate total trades and avg latency from database
@@ -448,8 +447,8 @@ impl Database {
         self.conn.call(move |conn| {
             conn.execute(
                 "INSERT INTO system_metrics
-                 (id, router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds, total_trades, avg_latency_ms, provider_connected, updated_at)
-                 VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP)
+                 (id, router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds, total_trades, avg_latency_ms, updated_at)
+                 VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)
                  ON CONFLICT(id) DO UPDATE SET
                     router_status = excluded.router_status,
                     router_port = excluded.router_port,
@@ -459,12 +458,34 @@ impl Database {
                     uptime_seconds = excluded.uptime_seconds,
                     total_trades = excluded.total_trades,
                     avg_latency_ms = excluded.avg_latency_ms,
-                    provider_connected = excluded.provider_connected,
                     updated_at = CURRENT_TIMESTAMP",
-                rusqlite::params![&router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds as i64, total_trades, avg_latency_ms, provider_connected],
+                rusqlite::params![&router_status, router_port, copier_active, total_workers, active_workers, uptime_seconds as i64, total_trades, avg_latency_ms],
             )?;
             Ok(())
         }).await?;
+
+        Ok(())
+    }
+
+    /// Set only `system_metrics.provider_connected`. The router is the sole owner
+    /// of this column (`upsert_system_metrics` never touches it), so the periodic
+    /// metrics collector cannot clobber it. Creates the metrics row with
+    /// placeholder values if the collector has not written it yet; the collector
+    /// overwrites those on its next tick.
+    pub async fn set_provider_connected(&self, connected: bool) -> Result<()> {
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO system_metrics
+                     (id, router_status, router_port, copier_active, total_workers, active_workers, provider_connected, updated_at)
+                     VALUES (1, 'online', 5000, 1, 0, 0, ?1, CURRENT_TIMESTAMP)
+                     ON CONFLICT(id) DO UPDATE SET
+                        provider_connected = excluded.provider_connected",
+                    rusqlite::params![connected],
+                )?;
+                Ok(())
+            })
+            .await?;
 
         Ok(())
     }
@@ -1085,7 +1106,6 @@ pub struct SystemMetricsUpdate {
     pub total_workers: i32,
     pub active_workers: i32,
     pub uptime_seconds: u64,
-    pub provider_connected: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1278,27 +1298,70 @@ mod tests {
         assert!(db.insert_trade("127.0.0.1:1", &trade(1)).await.is_err());
     }
 
+    fn metrics_update(total_workers: i32) -> SystemMetricsUpdate {
+        SystemMetricsUpdate {
+            router_status: "online".to_string(),
+            router_port: 5000,
+            copier_active: true,
+            total_workers,
+            active_workers: 1,
+            uptime_seconds: 30,
+        }
+    }
+
     #[tokio::test]
     async fn system_metrics_upsert_keeps_single_row() {
         let db = db().await;
-        for provider_connected in [false, true] {
-            db.upsert_system_metrics(SystemMetricsUpdate {
-                router_status: "online".to_string(),
-                router_port: 5000,
-                copier_active: true,
-                total_workers: 2,
-                active_workers: 1,
-                uptime_seconds: 30,
-                provider_connected,
-            })
-            .await
-            .unwrap();
+        for total_workers in [1, 2] {
+            db.upsert_system_metrics(metrics_update(total_workers))
+                .await
+                .unwrap();
         }
 
         let metrics = db.get_system_metrics().await.unwrap().unwrap();
         assert_eq!(metrics.id, 1);
         assert_eq!(metrics.total_workers, 2);
+        assert!(!metrics.provider_connected);
+    }
+
+    // Regression: the 30s metrics collector used to write a hard-coded
+    // `provider_connected = false`, wiping the router's `true` every tick.
+    #[tokio::test]
+    async fn metrics_upsert_does_not_clobber_provider_connected() {
+        let db = db().await;
+        db.upsert_system_metrics(metrics_update(1)).await.unwrap();
+        db.set_provider_connected(true).await.unwrap();
+
+        db.upsert_system_metrics(metrics_update(3)).await.unwrap();
+
+        let metrics = db.get_system_metrics().await.unwrap().unwrap();
         assert!(metrics.provider_connected);
+        assert_eq!(metrics.total_workers, 3);
+    }
+
+    // Regression: the router's old read-modify-write silently did nothing when
+    // no metrics row existed yet.
+    #[tokio::test]
+    async fn set_provider_connected_creates_row_and_preserves_other_fields() {
+        let db = db().await;
+        assert!(db.get_system_metrics().await.unwrap().is_none());
+
+        db.set_provider_connected(true).await.unwrap();
+        assert!(
+            db.get_system_metrics()
+                .await
+                .unwrap()
+                .unwrap()
+                .provider_connected
+        );
+
+        db.upsert_system_metrics(metrics_update(4)).await.unwrap();
+        db.set_provider_connected(false).await.unwrap();
+
+        let metrics = db.get_system_metrics().await.unwrap().unwrap();
+        assert!(!metrics.provider_connected);
+        assert_eq!(metrics.total_workers, 4);
+        assert_eq!(metrics.uptime_seconds, 30);
     }
 
     #[tokio::test]

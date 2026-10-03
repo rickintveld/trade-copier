@@ -180,6 +180,8 @@ pub async fn install_dependencies(
 
     // Check current status
     let pm_installed = is_package_manager_installed();
+    // Only consulted where Wine is installed by us (macOS/Linux); on Windows it is always true.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     let wine_installed = is_wine_installed();
 
     // Install package manager if needed

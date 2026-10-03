@@ -2,7 +2,7 @@ use crate::database::{Database, ErrorSeverity, WorkerState};
 use crate::types::{ProfitInfo, SlaveConfig, Trade};
 use anyhow::Result;
 use log::{error, info};
-use socket2::{Socket, TcpKeepalive};
+use socket2::{SockRef, TcpKeepalive};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -524,28 +524,21 @@ pub async fn kill_wine_process(wine_prefix: &PathBuf) -> Result<()> {
 
 /// Configure TCP socket with keep-alive and other options
 fn configure_tcp_socket(stream: &tokio::net::TcpStream) -> Result<()> {
-    use std::os::unix::io::{AsRawFd, FromRawFd};
-
-    let fd = stream.as_raw_fd();
-    // Borrow the socket without taking ownership
-    let socket = unsafe { Socket::from_raw_fd(fd) };
+    // Borrow the socket without taking ownership (works on both Unix fds and
+    // Windows SOCKETs, and never closes the handle on drop).
+    let socket = SockRef::from(stream);
 
     // Enable TCP keep-alive with aggressive settings
     let keepalive = TcpKeepalive::new()
         .with_time(Duration::from_secs(30)) // Start probes after 30s idle
         .with_interval(Duration::from_secs(10)); // Probe every 10s
 
-    let result = socket
+    socket
         .set_tcp_keepalive(&keepalive)
         .and_then(|_| socket.set_nodelay(true))
         .and_then(|_| socket.set_read_timeout(Some(Duration::from_secs(30))))
-        .and_then(|_| socket.set_write_timeout(Some(Duration::from_secs(10))));
-
-    // Prevent socket from being dropped and closing the fd
-    // We borrowed it from tokio's TcpStream which owns it
-    std::mem::forget(socket);
-
-    result.map_err(|e: std::io::Error| anyhow::anyhow!(e))
+        .and_then(|_| socket.set_write_timeout(Some(Duration::from_secs(10))))
+        .map_err(|e: std::io::Error| anyhow::anyhow!(e))
 }
 
 /// Monitor connection health with periodic heartbeat

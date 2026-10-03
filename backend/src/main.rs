@@ -127,7 +127,8 @@ async fn main() -> Result<()> {
                         Err(_) => (0, 0),
                     };
 
-                    // Update system metrics (provider_connected defaults to false, will be updated by router)
+                    // provider_connected is owned by the router (set_provider_connected);
+                    // this upsert deliberately leaves it untouched.
                     if let Err(e) = metrics_db
                         .upsert_system_metrics(SystemMetricsUpdate {
                             router_status: "online".to_string(),
@@ -136,7 +137,6 @@ async fn main() -> Result<()> {
                             total_workers,
                             active_workers,
                             uptime_seconds,
-                            provider_connected: false,
                         })
                         .await
                     {

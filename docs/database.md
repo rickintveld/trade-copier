@@ -137,6 +137,10 @@ CREATE TABLE system_metrics (
     uptime_seconds INTEGER NOT NULL DEFAULT 0,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )
+-- Added by migrations:
+-- total_trades INTEGER NOT NULL DEFAULT 0
+-- avg_latency_ms REAL NOT NULL DEFAULT 0.0
+-- provider_connected BOOLEAN NOT NULL DEFAULT 0
 ```
 
 **Fields:**
@@ -147,6 +151,10 @@ CREATE TABLE system_metrics (
 - `total_workers`: Total number of configured workers
 - `active_workers`: Number of workers in `active` state
 - `uptime_seconds`: Service uptime in seconds
+- `total_trades`, `avg_latency_ms`: Computed by `upsert_system_metrics`
+- `provider_connected`: At least one master (Signal Provider) connection is open.
+  Written only by the router via `set_provider_connected`; `upsert_system_metrics`
+  leaves it untouched (see [router.md](./router.md#provider-connection-status))
 - `updated_at`: Last metrics update timestamp
 
 ## Database Operations
@@ -232,8 +240,9 @@ Database is automatically initialized on first run:
 ### Maintenance
 
 **Metrics Updates:**
-- System metrics are updated every 30 seconds by a background task
-- Final metrics are written on shutdown
+- System metrics are updated every 30 seconds by a background task (all columns except `provider_connected`)
+- `provider_connected` is updated by the router on every master connect/disconnect
+- Nothing is written on shutdown (the app runs `shutdown_all()` and then `process::exit(0)`), so `provider_connected` may remain `true` in the DB after exit. The router resets it to `false` when it starts, before accepting connections.
 
 **Error Cleanup:**
 - No automatic cleanup (errors are kept for audit)
