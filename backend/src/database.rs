@@ -1139,3 +1139,174 @@ pub struct FeatureToggleRecord {
     pub created_at: String,
     pub updated_at: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn db() -> Database {
+        Database::new(":memory:").await.unwrap()
+    }
+
+    fn worker(name: &str, address: &str) -> WorkerUpsertConfig {
+        WorkerUpsertConfig {
+            name: name.to_string(),
+            address: address.to_string(),
+            multiplier: 1.5,
+            state: WorkerState::Active,
+            error: None,
+            wine_prefix: None,
+            symbol_prefix: ".m".to_string(),
+        }
+    }
+
+    fn trade(id: u64) -> Trade {
+        Trade {
+            id,
+            symbol: "EURUSD".to_string(),
+            trade_type: Some("buy".to_string()),
+            lots: 0.1,
+            price: Some(1.1),
+            sl: None,
+            tp: None,
+            cmd: "open".to_string(),
+            order_type: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn schema_creation_is_idempotent_and_seeds_feature_toggles() {
+        let path = tempfile::NamedTempFile::new().unwrap();
+        let path = path.path().to_str().unwrap();
+        Database::new(path).await.unwrap();
+        let db = Database::new(path).await.unwrap();
+        assert!(!db.get_feature_toggles().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn upsert_worker_updates_existing_address() {
+        let db = db().await;
+        db.upsert_worker(worker("a", "127.0.0.1:5051"))
+            .await
+            .unwrap();
+        db.upsert_worker(WorkerUpsertConfig {
+            multiplier: 2.0,
+            state: WorkerState::Error,
+            error: Some("boom".to_string()),
+            ..worker("renamed", "127.0.0.1:5051")
+        })
+        .await
+        .unwrap();
+
+        let workers = db.get_all_workers().await.unwrap();
+        assert_eq!(workers.len(), 1);
+        assert_eq!(workers[0].name, "renamed");
+        assert_eq!(workers[0].multiplier, 2.0);
+        assert_eq!(workers[0].state, "error");
+        assert_eq!(workers[0].last_error.as_deref(), Some("boom"));
+    }
+
+    #[tokio::test]
+    async fn create_worker_rejects_duplicate_address() {
+        let db = db().await;
+        db.create_worker_with_state("a", "127.0.0.1:5051", 1.0, WorkerState::Inactive)
+            .await
+            .unwrap();
+        assert!(db
+            .create_worker_with_state("b", "127.0.0.1:5051", 1.0, WorkerState::Inactive)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn update_worker_settings_rejects_address_of_other_worker() {
+        let db = db().await;
+        let a = db
+            .create_worker_with_state("a", "127.0.0.1:5051", 1.0, WorkerState::Inactive)
+            .await
+            .unwrap();
+        db.create_worker_with_state("b", "127.0.0.1:5052", 1.0, WorkerState::Inactive)
+            .await
+            .unwrap();
+
+        assert!(db
+            .update_worker_settings(a, "a", "127.0.0.1:5052", 1.0, "")
+            .await
+            .is_err());
+        assert!(db
+            .update_worker_settings(9999, "x", "127.0.0.1:5999", 1.0, "")
+            .await
+            .is_err());
+
+        db.update_worker_settings(a, "a2", "127.0.0.1:5053", 3.0, ".pro")
+            .await
+            .unwrap();
+        let updated = db.get_worker_by_id(a).await.unwrap().unwrap();
+        assert_eq!(updated.address, "127.0.0.1:5053");
+        assert_eq!(updated.symbol_prefix, ".pro");
+    }
+
+    #[tokio::test]
+    async fn trades_errors_and_profits_are_linked_to_worker_by_address() {
+        let db = db().await;
+        db.upsert_worker(worker("a", "127.0.0.1:5051"))
+            .await
+            .unwrap();
+
+        db.insert_trade("127.0.0.1:5051", &trade(7)).await.unwrap();
+        db.insert_worker_error("127.0.0.1:5051", ErrorSeverity::Warning, "slow ack")
+            .await
+            .unwrap();
+        db.insert_profit("127.0.0.1:5051", 12.5).await.unwrap();
+
+        let trades = db.get_all_trades(None).await.unwrap();
+        assert_eq!(trades.len(), 1);
+        assert_eq!(trades[0].trade_id, 7);
+        assert_eq!(trades[0].worker_name, "a");
+
+        let errors = db.get_all_errors(None).await.unwrap();
+        assert_eq!(errors[0].severity, "warning");
+        assert_eq!(errors[0].error_message, "slow ack");
+
+        let profits = db.get_profit_history(None, None).await.unwrap();
+        assert_eq!(profits[0].profit, 12.5);
+    }
+
+    #[tokio::test]
+    async fn inserting_for_unknown_worker_fails() {
+        let db = db().await;
+        assert!(db.insert_trade("127.0.0.1:1", &trade(1)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn system_metrics_upsert_keeps_single_row() {
+        let db = db().await;
+        for provider_connected in [false, true] {
+            db.upsert_system_metrics(SystemMetricsUpdate {
+                router_status: "online".to_string(),
+                router_port: 5000,
+                copier_active: true,
+                total_workers: 2,
+                active_workers: 1,
+                uptime_seconds: 30,
+                provider_connected,
+            })
+            .await
+            .unwrap();
+        }
+
+        let metrics = db.get_system_metrics().await.unwrap().unwrap();
+        assert_eq!(metrics.id, 1);
+        assert_eq!(metrics.total_workers, 2);
+        assert!(metrics.provider_connected);
+    }
+
+    #[tokio::test]
+    async fn update_unknown_feature_toggle_fails() {
+        let db = db().await;
+        assert!(db
+            .update_feature_toggle("does-not-exist", true)
+            .await
+            .is_err());
+    }
+}

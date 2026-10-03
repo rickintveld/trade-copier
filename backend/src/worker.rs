@@ -223,15 +223,7 @@ pub async fn run_worker(
                 Ok(mut trade) => {
                 info!("[WORKER:{}] Received trade: {:?}", slave.name, trade);
 
-                // Apply risk multiplier
-                trade.lots *= slave.multiplier;
-                trade.lots = (trade.lots * 100.0).round() / 100.0; // Round to 2 decimals
-
-                // Apply symbol prefix if configured
-                if !slave.symbol_prefix.is_empty() {
-                    trade.symbol = format!("{}{}", trade.symbol, slave.symbol_prefix);
-                    info!("[WORKER:{}] Applied symbol prefix: {}", slave.name, trade.symbol);
-                }
+                adjust_trade_for_slave(&mut trade, &slave);
 
                 info!(
                     "[WORKER:{}] Adjusted lots: {} (multiplier: {})",
@@ -339,6 +331,17 @@ pub async fn run_worker(
     }
 
     Ok(())
+}
+
+/// Apply the slave's lot multiplier (rounded to 2 decimals) and append its
+/// `symbol_prefix`, which is effectively a broker suffix (`EURUSD` -> `EURUSD.m`).
+fn adjust_trade_for_slave(trade: &mut Trade, slave: &SlaveConfig) {
+    trade.lots *= slave.multiplier;
+    trade.lots = (trade.lots * 100.0).round() / 100.0;
+
+    if !slave.symbol_prefix.is_empty() {
+        trade.symbol = format!("{}{}", trade.symbol, slave.symbol_prefix);
+    }
 }
 
 /// Monitor Wine process associated with this worker's MT5 instance
@@ -813,5 +816,134 @@ async fn send_trade(
             );
             Err(anyhow::anyhow!("Acknowledgment timeout"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::net::TcpStream;
+
+    fn slave(multiplier: f64, symbol_prefix: &str) -> SlaveConfig {
+        SlaveConfig {
+            name: "test-slave".to_string(),
+            address: "127.0.0.1:0".to_string(),
+            multiplier,
+            symbol_prefix: symbol_prefix.to_string(),
+        }
+    }
+
+    fn trade(id: u64, symbol: &str, lots: f64) -> Trade {
+        Trade {
+            id,
+            symbol: symbol.to_string(),
+            trade_type: Some("buy".to_string()),
+            lots,
+            price: Some(1.1),
+            sl: None,
+            tp: None,
+            cmd: "open".to_string(),
+            order_type: None,
+        }
+    }
+
+    #[test]
+    fn adjust_applies_multiplier_and_rounds_to_two_decimals() {
+        let mut t = trade(1, "EURUSD", 0.33);
+        adjust_trade_for_slave(&mut t, &slave(1.5, ""));
+        assert_eq!(t.lots, 0.5);
+        assert_eq!(t.symbol, "EURUSD");
+    }
+
+    #[test]
+    fn adjust_appends_symbol_suffix() {
+        let mut t = trade(1, "EURUSD", 0.1);
+        adjust_trade_for_slave(&mut t, &slave(1.0, ".m"));
+        assert_eq!(t.symbol, "EURUSD.m");
+        assert_eq!(t.lots, 0.1);
+    }
+
+    fn free_local_address() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().to_string()
+    }
+
+    async fn wait_until<F, Fut>(mut condition: F)
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        for _ in 0..100 {
+            if condition().await {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("condition not met within 2s");
+    }
+
+    #[tokio::test]
+    async fn worker_forwards_adjusted_trade_and_records_it() {
+        let db = Arc::new(Database::new(":memory:").await.unwrap());
+        let address = free_local_address();
+        let config = SlaveConfig {
+            address: address.clone(),
+            ..slave(2.0, ".m")
+        };
+
+        let (trade_tx, trade_rx) = broadcast::channel(16);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let handle = tokio::spawn(run_worker(config, trade_rx, db.clone(), shutdown_rx, None));
+
+        // Fake Signal Receiver EA connecting to the worker
+        let mut stream = None;
+        for _ in 0..100 {
+            if let Ok(s) = TcpStream::connect(&address).await {
+                stream = Some(s);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let (read_half, mut write_half) = stream.expect("worker never listened").into_split();
+        let mut lines = BufReader::new(read_half).lines();
+
+        wait_until(|| async {
+            db.get_worker_by_name("test-slave")
+                .await
+                .unwrap()
+                .is_some_and(|w| w.mt5_connected)
+        })
+        .await;
+
+        trade_tx.send(trade(42, "EURUSD", 0.15)).unwrap();
+
+        let received: Trade = loop {
+            let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+                .await
+                .expect("no trade received")
+                .unwrap()
+                .unwrap();
+            if line != "PING" {
+                break serde_json::from_str(&line).unwrap();
+            }
+        };
+        assert_eq!(received.id, 42);
+        assert_eq!(received.symbol, "EURUSD.m");
+        assert_eq!(received.lots, 0.3);
+
+        write_half.write_all(b"OK:42\n").await.unwrap();
+
+        wait_until(|| async { !db.get_all_trades(None).await.unwrap().is_empty() }).await;
+        let trades = db.get_all_trades(None).await.unwrap();
+        assert_eq!(trades[0].trade_id, 42);
+        assert_eq!(trades[0].symbol, "EURUSD.m");
+
+        shutdown_tx.send(true).unwrap();
+        handle.await.unwrap().unwrap();
+
+        let worker = db.get_worker_by_name("test-slave").await.unwrap().unwrap();
+        assert_eq!(worker.state, "inactive");
+        assert!(!worker.mt5_connected);
     }
 }
