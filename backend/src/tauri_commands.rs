@@ -1,4 +1,4 @@
-use log::{info, warn, error};
+use log::{error, info, warn};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -35,7 +35,9 @@ pub async fn health_check() -> Result<ApiResponse<serde_json::Value>, String> {
 
 // Get all workers
 #[tauri::command]
-pub async fn get_workers(state: State<'_, AppState>) -> Result<ApiResponse<serde_json::Value>, String> {
+pub async fn get_workers(
+    state: State<'_, AppState>,
+) -> Result<ApiResponse<serde_json::Value>, String> {
     match state.db.get_all_workers().await {
         Ok(workers) => Ok(ApiResponse {
             success: true,
@@ -77,7 +79,9 @@ pub async fn get_errors(
 
 // Get system metrics
 #[tauri::command]
-pub async fn get_system_metrics(state: State<'_, AppState>) -> Result<ApiResponse<serde_json::Value>, String> {
+pub async fn get_system_metrics(
+    state: State<'_, AppState>,
+) -> Result<ApiResponse<serde_json::Value>, String> {
     match state.db.get_system_metrics().await {
         Ok(metrics) => Ok(ApiResponse {
             success: true,
@@ -119,11 +123,11 @@ pub async fn create_instance(
         multiplier,
         symbol_prefix: symbol_prefix.clone().unwrap_or_default(),
     };
-    
+
     if let Err(e) = config.validate() {
         return Err(format!("Invalid configuration: {}", e));
     }
-    
+
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => {
             let worker_tx = state.worker_command_tx.lock().await.clone();
@@ -160,18 +164,21 @@ pub async fn update_instance(
         multiplier,
         symbol_prefix: symbol_prefix.clone().unwrap_or_default(),
     };
-    
+
     if let Err(e) = config.validate() {
         return Err(format!("Invalid configuration: {}", e));
     }
-    
+
     // Get current worker info to check if it's running
-    let worker = state.db.get_worker_by_id(id).await
+    let worker = state
+        .db
+        .get_worker_by_id(id)
+        .await
         .map_err(|e| format!("Failed to get worker: {}", e))?
         .ok_or_else(|| format!("Worker with ID {} not found", id))?;
-    
+
     let was_active = worker.state == "active";
-    
+
     // Stop the worker if it's currently running
     if was_active {
         let tx = state.worker_command_tx.lock().await;
@@ -182,7 +189,7 @@ pub async fn update_instance(
         // Give the worker time to shut down
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
-    
+
     // Also stop the MT5 instance if it was running
     if was_active {
         match InstanceManager::new(state.db.clone()) {
@@ -192,10 +199,13 @@ pub async fn update_instance(
                 }
             }
             Err(e) => {
-                warn!("[TAURI] Failed to initialize instance manager during update: {}", e);
+                warn!(
+                    "[TAURI] Failed to initialize instance manager during update: {}",
+                    e
+                );
             }
         }
-        
+
         // Poll until the TCP port is actually free (max ~10s)
         info!("[TAURI] Waiting for port to be released...");
         let mut port_free = false;
@@ -203,7 +213,11 @@ pub async fn update_instance(
             match tokio::net::TcpListener::bind(&address).await {
                 Ok(listener) => {
                     drop(listener);
-                    info!("[TAURI] Port {} is now free (after {}ms)", address, attempt * 500);
+                    info!(
+                        "[TAURI] Port {} is now free (after {}ms)",
+                        address,
+                        attempt * 500
+                    );
                     port_free = true;
                     break;
                 }
@@ -213,31 +227,40 @@ pub async fn update_instance(
             }
         }
         if !port_free {
-            warn!("[TAURI] Port {} still in use after 10s, proceeding anyway", address);
+            warn!(
+                "[TAURI] Port {} still in use after 10s, proceeding anyway",
+                address
+            );
         }
     }
-    
+
     // Update the worker settings in the database
     let prefix = symbol_prefix.unwrap_or_default();
-    state.db.update_worker_settings(id, &name, &address, multiplier, &prefix).await
+    state
+        .db
+        .update_worker_settings(id, &name, &address, multiplier, &prefix)
+        .await
         .map_err(|e| format!("Failed to update worker: {}", e))?;
-    
+
     // Restart the worker if it was previously active
     if was_active {
         // Clear error state before restarting
-        if let Err(e) = state.db.update_worker_state(
-            &address,
-            crate::database::WorkerState::Inactive,
-            None,
-        ).await {
+        if let Err(e) = state
+            .db
+            .update_worker_state(&address, crate::database::WorkerState::Inactive, None)
+            .await
+        {
             error!("[TAURI] Failed to clear error state: {}", e);
         }
-        
+
         // Start the MT5 instance (use force=false since we already cleanly stopped)
-        let updated_worker = state.db.get_worker_by_id(id).await
+        let updated_worker = state
+            .db
+            .get_worker_by_id(id)
+            .await
             .map_err(|e| format!("Failed to get updated worker: {}", e))?
             .ok_or_else(|| format!("Updated worker with ID {} not found", id))?;
-        
+
         match InstanceManager::new(state.db.clone()) {
             Ok(manager) => {
                 if let Err(e) = manager.start_instance(&updated_worker, false).await {
@@ -245,17 +268,20 @@ pub async fn update_instance(
                 }
             }
             Err(e) => {
-                warn!("[TAURI] Failed to initialize instance manager for restart: {}", e);
+                warn!(
+                    "[TAURI] Failed to initialize instance manager for restart: {}",
+                    e
+                );
             }
         }
-        
+
         // Start the worker
         let tx = state.worker_command_tx.lock().await;
         if let Err(e) = tx.send(WorkerCommand::Start(id)).await {
             return Err(format!("Worker updated but failed to restart: {}", e));
         }
     }
-    
+
     Ok(ApiResponse {
         success: true,
         data: serde_json::json!({
@@ -272,10 +298,13 @@ pub async fn delete_instance(
     force: bool,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
     // Get worker info from database
-    let worker = state.db.get_worker_by_id(id).await
+    let worker = state
+        .db
+        .get_worker_by_id(id)
+        .await
         .map_err(|e| format!("Failed to get worker: {}", e))?
         .ok_or_else(|| format!("Worker with ID {} not found", id))?;
-    
+
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => match manager.delete_instance(&worker, force).await {
             Ok(()) => {
@@ -306,40 +335,53 @@ pub async fn start_instance(
     force: Option<bool>,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
     let force = force.unwrap_or(false);
-    
+
     // Get worker info from database
-    let worker = state.db.get_worker_by_id(id).await
+    let worker = state
+        .db
+        .get_worker_by_id(id)
+        .await
         .map_err(|e| format!("Failed to get worker: {}", e))?
         .ok_or_else(|| format!("Worker with ID {} not found", id))?;
-    
+
     // If force is true, stop the existing worker first to release the TCP port
     if force {
         let tx = state.worker_command_tx.lock().await;
         if let Err(e) = tx.send(WorkerCommand::Stop(worker.id)).await {
-            error!("[TAURI] Failed to send stop command before force start: {}", e);
+            error!(
+                "[TAURI] Failed to send stop command before force start: {}",
+                e
+            );
         } else {
             // Give the worker time to shut down and release the port
             drop(tx); // Release the lock before sleeping
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
     }
-    
+
     match InstanceManager::new(state.db.clone()) {
         Ok(manager) => match manager.start_instance(&worker, force).await {
             Ok(()) => {
                 // Clear any previous error state
-                if let Err(e) = state.db.update_worker_state(
-                    &worker.address,
-                    crate::database::WorkerState::Inactive,
-                    None,
-                ).await {
+                if let Err(e) = state
+                    .db
+                    .update_worker_state(
+                        &worker.address,
+                        crate::database::WorkerState::Inactive,
+                        None,
+                    )
+                    .await
+                {
                     error!("[TAURI] Failed to clear error state: {}", e);
                 }
-                
+
                 // Now send start command to worker manager
                 let tx = state.worker_command_tx.lock().await;
                 if let Err(e) = tx.send(WorkerCommand::Start(worker.id)).await {
-                    return Err(format!("MT5 instance started but failed to start worker: {}", e));
+                    return Err(format!(
+                        "MT5 instance started but failed to start worker: {}",
+                        e
+                    ));
                 }
 
                 Ok(ApiResponse {
@@ -362,10 +404,13 @@ pub async fn stop_instance(
     id: i64,
 ) -> Result<ApiResponse<serde_json::Value>, String> {
     // Get worker info from database
-    let worker = state.db.get_worker_by_id(id).await
+    let worker = state
+        .db
+        .get_worker_by_id(id)
+        .await
         .map_err(|e| format!("Failed to get worker: {}", e))?
         .ok_or_else(|| format!("Worker with ID {} not found", id))?;
-    
+
     // First, stop the worker
     let tx = state.worker_command_tx.lock().await;
     if let Err(e) = tx.send(WorkerCommand::Stop(worker.id)).await {
@@ -394,7 +439,9 @@ pub async fn stop_instance(
 
 // Get dependency status
 #[tauri::command]
-pub async fn get_dependency_status(state: State<'_, AppState>) -> Result<ApiResponse<serde_json::Value>, String> {
+pub async fn get_dependency_status(
+    state: State<'_, AppState>,
+) -> Result<ApiResponse<serde_json::Value>, String> {
     match dependency_manager::get_dependency_status(state.db.clone()).await {
         Ok(Some(status)) => Ok(ApiResponse {
             success: true,
@@ -440,7 +487,9 @@ pub async fn install_dependencies(
 
 // Get feature toggles
 #[tauri::command]
-pub async fn get_feature_toggles(state: State<'_, AppState>) -> Result<ApiResponse<serde_json::Value>, String> {
+pub async fn get_feature_toggles(
+    state: State<'_, AppState>,
+) -> Result<ApiResponse<serde_json::Value>, String> {
     match state.db.get_feature_toggles().await {
         Ok(toggles) => Ok(ApiResponse {
             success: true,
@@ -492,7 +541,10 @@ pub async fn fetch_economic_calendar(
                     Err(e) => Err(format!("Failed to parse response: {}", e)),
                 }
             } else {
-                Err(format!("API request failed with status: {}", response.status()))
+                Err(format!(
+                    "API request failed with status: {}",
+                    response.status()
+                ))
             }
         }
         Err(e) => Err(format!("Failed to fetch economic calendar: {}", e)),

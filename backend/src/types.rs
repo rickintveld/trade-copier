@@ -113,7 +113,7 @@ mod tests {
             tp: Some(1.0900),
             order_type: Some("market".to_string()),
         };
-        
+
         let json = serde_json::to_string(&trade).unwrap();
         assert!(json.contains("EURUSD"));
         assert!(json.contains("12345"));

@@ -8,11 +8,11 @@ pub fn get_master_mt5_experts_path() -> Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         // On macOS, MT5 runs through Wine with the following default path structure
-        let home_dir = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
-        
+        let home_dir =
+            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+
         let mt5_experts = home_dir.join("Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/MQL5/Experts");
-        
+
         if !mt5_experts.exists() {
             anyhow::bail!(
                 "Master MT5 installation not found at: {:?}\n  \
@@ -20,10 +20,10 @@ pub fn get_master_mt5_experts_path() -> Result<PathBuf> {
                 mt5_experts
             );
         }
-        
+
         Ok(mt5_experts)
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         // On Windows, MT5 is typically installed in Program Files
@@ -32,28 +32,29 @@ pub fn get_master_mt5_experts_path() -> Result<PathBuf> {
             PathBuf::from("C:\\Program Files\\MetaTrader 5\\MQL5\\Experts"),
             PathBuf::from("C:\\Program Files (x86)\\MetaTrader 5\\MQL5\\Experts"),
         ];
-        
+
         // Also check AppData for portable installations
         if let Some(app_data) = dirs::data_local_dir() {
             program_files_paths.push(app_data.join("Programs\\MetaTrader 5\\MQL5\\Experts"));
         }
-        
+
         for path in &program_files_paths {
             if path.exists() {
                 return Ok(path.clone());
             }
         }
-        
+
         anyhow::bail!(
             "Master MT5 installation not found. Checked:\n  {}\n  \
             Please ensure MetaTrader 5 is installed before starting this application.",
-            program_files_paths.iter()
+            program_files_paths
+                .iter()
                 .map(|p| format!("{:?}", p))
                 .collect::<Vec<_>>()
                 .join("\n  ")
         );
     }
-    
+
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         anyhow::bail!("Unsupported platform. Only macOS and Windows are supported.");
@@ -63,17 +64,15 @@ pub fn get_master_mt5_experts_path() -> Result<PathBuf> {
 /// Get the source directory containing the Expert Advisors to copy
 fn get_ea_source_path() -> Result<PathBuf> {
     // Try multiple possible locations for the source directory
-    let candidates = vec![
+    let candidates = [
         // 1. Development mode - relative to project root
         PathBuf::from("./backend/src/mql5/Trading Rocket"),
-        
         // 2. Development mode - when running from src-tauri directory
         PathBuf::from("./src/mql5/Trading Rocket"),
-        
         // 3. Development mode - old location
         PathBuf::from("./mql5/Trading Rocket"),
     ];
-    
+
     // 3. Production mode - relative to executable
     let mut production_candidates = Vec::new();
     if let Ok(exe_path) = std::env::current_exe() {
@@ -86,7 +85,7 @@ fn get_ea_source_path() -> Result<PathBuf> {
                     production_candidates.push(resources_dir.join("mql5/Trading Rocket"));
                 }
             }
-            
+
             // On Windows, resources are typically next to the executable
             #[cfg(target_os = "windows")]
             {
@@ -95,7 +94,7 @@ fn get_ea_source_path() -> Result<PathBuf> {
             }
         }
     }
-    
+
     // Check all candidates
     for candidate in candidates.iter().chain(production_candidates.iter()) {
         if candidate.exists() && candidate.is_dir() {
@@ -103,14 +102,16 @@ fn get_ea_source_path() -> Result<PathBuf> {
             return Ok(candidate.clone());
         }
     }
-    
+
     anyhow::bail!(
         "Expert Advisor source directory not found. Tried:\n  {}\n  {}",
-        candidates.iter()
+        candidates
+            .iter()
             .map(|p| format!("{:?}", p))
             .collect::<Vec<_>>()
             .join("\n  "),
-        production_candidates.iter()
+        production_candidates
+            .iter()
             .map(|p| format!("{:?}", p))
             .collect::<Vec<_>>()
             .join("\n  ")
@@ -121,70 +122,70 @@ fn get_ea_source_path() -> Result<PathBuf> {
 /// This should be called on application startup to ensure the latest version is always available
 pub fn sync_expert_advisors_to_master() -> Result<()> {
     info!("[EA_SYNC] Starting Expert Advisor synchronization to master MT5 installation...");
-    
+
     // Get source and destination paths
     let source_dir = get_ea_source_path()?;
     let experts_dir = get_master_mt5_experts_path()?;
     let dest_dir = experts_dir.join("Trading Rocket");
-    
+
     info!("[EA_SYNC] Source: {:?}", source_dir);
     info!("[EA_SYNC] Destination: {:?}", dest_dir);
-    
+
     // Create destination directory if it doesn't exist
     if !dest_dir.exists() {
-        fs::create_dir_all(&dest_dir)
-            .context(format!("Failed to create destination directory: {:?}", dest_dir))?;
+        fs::create_dir_all(&dest_dir).context(format!(
+            "Failed to create destination directory: {:?}",
+            dest_dir
+        ))?;
         info!("[EA_SYNC] Created directory: {:?}", dest_dir);
     }
-    
+
     // Read all files from source directory
     let entries = fs::read_dir(&source_dir)
         .context(format!("Failed to read source directory: {:?}", source_dir))?;
-    
+
     let mut copied_count = 0;
     let mut skipped_count = 0;
-    
+
     for entry in entries {
         let entry = entry.context("Failed to read directory entry")?;
         let path = entry.path();
-        
+
         // Only process files (skip directories and symlinks)
         if !path.is_file() {
             continue;
         }
-        
-        let file_name = path.file_name()
-            .context("Failed to get file name")?;
-        
+
+        let file_name = path.file_name().context("Failed to get file name")?;
+
         // Skip hidden files like .DS_Store
         let file_name_str = file_name.to_string_lossy();
         if file_name_str.starts_with('.') {
             skipped_count += 1;
             continue;
         }
-        
+
         // Copy file to destination (overwrite if exists)
         let dest_path = dest_dir.join(file_name);
         fs::copy(&path, &dest_path)
             .context(format!("Failed to copy {:?} to {:?}", path, dest_path))?;
-        
+
         info!("[EA_SYNC]   ✓ Copied: {:?}", file_name);
         copied_count += 1;
     }
-    
+
     info!(
         "[EA_SYNC] ✓ Successfully synchronized {} Expert Advisor file(s) ({} skipped)",
-        copied_count,
-        skipped_count
+        copied_count, skipped_count
     );
-    
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_get_master_mt5_experts_path() {
         // This test will only pass if MT5 is actually installed
@@ -199,7 +200,7 @@ mod tests {
             }
         }
     }
-    
+
     #[test]
     fn test_get_ea_source_path() {
         // This should work in development environment

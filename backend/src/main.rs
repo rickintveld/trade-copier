@@ -13,13 +13,13 @@ mod worker;
 mod worker_manager;
 
 use anyhow::Result;
-use log::{info, error, warn};
-use std::sync::Arc;
+use log::{error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, watch, Mutex};
 
-use database::Database;
+use database::{Database, SystemMetricsUpdate};
 use tauri_commands::AppState;
 use types::Trade;
 
@@ -51,7 +51,8 @@ async fn main() -> Result<()> {
         .join("trade-copier");
     std::fs::create_dir_all(&app_data_dir)?;
     let db_path = app_data_dir.join("trade_copier.db");
-    let db_path_str = db_path.to_str()
+    let db_path_str = db_path
+        .to_str()
         .ok_or_else(|| anyhow::anyhow!("Invalid database path"))?;
     let db = Arc::new(Database::new(db_path_str).await?);
     info!("Database initialized at {:?}", db_path);
@@ -80,7 +81,7 @@ async fn main() -> Result<()> {
     if let Err(e) = worker_manager.sync_database_state().await {
         warn!("Failed to sync worker database state: {}", e);
     }
-    
+
     // Spawn worker manager event loop
     let worker_manager_clone = worker_manager.clone();
     tokio::spawn(async move {
@@ -128,7 +129,15 @@ async fn main() -> Result<()> {
 
                     // Update system metrics (provider_connected defaults to false, will be updated by router)
                     if let Err(e) = metrics_db
-                        .upsert_system_metrics("online", 5000, true, total_workers, active_workers, uptime_seconds, false)
+                        .upsert_system_metrics(SystemMetricsUpdate {
+                            router_status: "online".to_string(),
+                            router_port: 5000,
+                            copier_active: true,
+                            total_workers,
+                            active_workers,
+                            uptime_seconds,
+                            provider_connected: false,
+                        })
                         .await
                     {
                         error!("Failed to update system metrics: {}", e);
@@ -159,7 +168,7 @@ async fn main() -> Result<()> {
             tauri_commands::get_errors,
             tauri_commands::get_system_metrics,
             tauri_commands::get_profit_history,
-tauri_commands::create_instance,
+            tauri_commands::create_instance,
             tauri_commands::update_instance,
             tauri_commands::delete_instance,
             tauri_commands::start_instance,
@@ -173,16 +182,18 @@ tauri_commands::create_instance,
         ])
         .setup(move |app| {
             info!("Tauri app initialized");
-            
+
             // Check dependencies on startup
             let db_clone = db.clone();
             let app_handle = app.handle().clone();
             tokio::spawn(async move {
-                if let Err(e) = dependency_manager::check_dependencies(db_clone, Some(&app_handle)).await {
+                if let Err(e) =
+                    dependency_manager::check_dependencies(db_clone, Some(&app_handle)).await
+                {
                     error!("Failed to check dependencies on startup: {}", e);
                 }
             });
-            
+
             Ok(())
         })
         .on_window_event(move |_window, event| {
