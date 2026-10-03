@@ -1,5 +1,5 @@
 // API client for trade-copier backend using Tauri
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -82,12 +82,12 @@ export interface ApiFeatureToggle {
   updated_at: string;
 }
 
-async function tauriInvoke<T>(command: string, args?: any): Promise<ApiResponse<T>> {
+async function tauriInvoke<T>(command: string, args?: InvokeArgs): Promise<ApiResponse<T>> {
   try {
     const response = await invoke<ApiResponse<T>>(command, args);
     return response;
   } catch (error) {
-    throw new Error(typeof error === 'string' ? error : 'Unknown error occurred');
+    throw new Error(typeof error === 'string' ? error : 'Unknown error occurred', { cause: error });
   }
 }
 
