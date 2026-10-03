@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -17,7 +17,24 @@ export function useDependencyStatus() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchStatus = async () => {
+  const checkDependencies = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await invoke<{ success: boolean; data: DependencyStatus }>(
+        "check_dependencies"
+      );
+      
+      if (response.success) {
+        setStatus(response.data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchStatus = useCallback(async () => {
     try {
       setLoading(true);
       const response = await invoke<{ success: boolean; data: DependencyStatus | null }>(
@@ -35,24 +52,7 @@ export function useDependencyStatus() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const checkDependencies = async () => {
-    try {
-      setLoading(true);
-      const response = await invoke<{ success: boolean; data: DependencyStatus }>(
-        "check_dependencies"
-      );
-      
-      if (response.success) {
-        setStatus(response.data);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [checkDependencies]);
 
   const installDependencies = async () => {
     try {
@@ -80,7 +80,7 @@ export function useDependencyStatus() {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [fetchStatus]);
 
   return {
     status,

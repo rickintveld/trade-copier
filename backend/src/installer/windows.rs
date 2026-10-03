@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use log::{info, warn, error};
+use log::{error, info, warn};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -43,30 +43,54 @@ impl WindowsInstanceManager {
                 let error_msg = format!("MT5 installation failed: {}", e);
                 error!("[INSTALLER] {}", error_msg);
                 error!("[INSTALLER] The instance was created but MT5 installation incomplete.");
-                error!("[INSTALLER] You can delete it with: DELETE /api/instances/{}", name);
+                error!(
+                    "[INSTALLER] You can delete it with: DELETE /api/instances/{}",
+                    name
+                );
                 // Log to worker_errors table
-                let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Critical, &error_msg).await;
+                let _ = db
+                    .insert_worker_error(
+                        &address,
+                        crate::database::ErrorSeverity::Critical,
+                        &error_msg,
+                    )
+                    .await;
                 return Err(e);
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            info!("[INSTALLER] [DRY RUN - not on Windows] Would install MT5 to {:?}", instance_path);
+            info!(
+                "[INSTALLER] [DRY RUN - not on Windows] Would install MT5 to {:?}",
+                instance_path
+            );
         }
 
         // Copy Expert Advisors after successful installation
         if let Err(e) = super::common::copy_expert_advisors(&instance_path) {
             let error_msg = format!("Failed to copy Expert Advisors: {}. You can manually copy them from ./src/mql5/Trading Rocket/", e);
             warn!("[INSTALLER] {}", error_msg);
-            let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Warning, &error_msg).await;
+            let _ = db
+                .insert_worker_error(
+                    &address,
+                    crate::database::ErrorSeverity::Warning,
+                    &error_msg,
+                )
+                .await;
         }
-        
+
         // Copy Default.tpl template with worker port configuration
         if let Err(e) = super::common::copy_default_template(&instance_path, &address) {
             let error_msg = format!("Failed to copy Default.tpl template: {}. You can manually copy it from ./src/mql5/Profiles/Templates/", e);
             warn!("[INSTALLER] {}", error_msg);
-            let _ = db.insert_worker_error(&address, crate::database::ErrorSeverity::Warning, &error_msg).await;
+            let _ = db
+                .insert_worker_error(
+                    &address,
+                    crate::database::ErrorSeverity::Warning,
+                    &error_msg,
+                )
+                .await;
         }
 
         // Save worker to database with instance path (Windows doesn't use Wine)
@@ -79,20 +103,31 @@ impl WindowsInstanceManager {
             error: None,
             wine_prefix: Some(path_str),
             symbol_prefix,
-        }).await?;
+        })
+        .await?;
 
         info!("[INSTALLER] Instance '{}' created successfully!", name);
         info!("[INSTALLER]   Path: {:?}", instance_path);
         info!("[INSTALLER]   Address: {}", address);
         info!("[INSTALLER]   Multiplier: {}", multiplier);
-        info!("[INSTALLER] NOTE: Worker will be activated automatically after installation completes");
+        info!(
+            "[INSTALLER] NOTE: Worker will be activated automatically after installation completes"
+        );
 
         Ok(())
     }
 
-    pub async fn delete_instance(&self, worker: &crate::database::WorkerRecord, force: bool, db: Arc<Database>) -> Result<()> {
+    pub async fn delete_instance(
+        &self,
+        worker: &crate::database::WorkerRecord,
+        force: bool,
+        db: Arc<Database>,
+    ) -> Result<()> {
         if !force {
-            info!("[INSTALLER] Warning: This will delete instance '{}' and all its data", worker.name);
+            info!(
+                "[INSTALLER] Warning: This will delete instance '{}' and all its data",
+                worker.name
+            );
             info!("[INSTALLER] Use force=true to confirm deletion");
             bail!("Deletion cancelled - use force=true to confirm");
         }
@@ -106,22 +141,31 @@ impl WindowsInstanceManager {
                 let instance_path = PathBuf::from(instance_prefix);
                 let exe_path = instance_path.join("terminal64.exe");
                 let exe_path_str = exe_path.to_string_lossy().replace("\\", "\\\\");
-                
+
                 // Query for processes with this specific executable path
-                let query = format!("process where ExecutablePath='{}' get ProcessId", exe_path_str);
                 let output = Command::new("wmic")
-                    .args(&["process", "where", &format!("ExecutablePath='{}'", exe_path_str), "get", "ProcessId"])
+                    .args([
+                        "process",
+                        "where",
+                        &format!("ExecutablePath='{}'", exe_path_str),
+                        "get",
+                        "ProcessId",
+                    ])
                     .output();
-                
+
                 if let Ok(result) = output {
                     let stdout = String::from_utf8_lossy(&result.stdout);
                     // Parse PIDs from output and kill each one
-                    for line in stdout.lines().skip(1) { // Skip header
+                    for line in stdout.lines().skip(1) {
+                        // Skip header
                         if let Ok(pid) = line.trim().parse::<u32>() {
                             let _ = Command::new("taskkill")
-                                .args(&["/F", "/PID", &pid.to_string()])
+                                .args(["/F", "/PID", &pid.to_string()])
                                 .output();
-                            info!("[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'", pid, worker.name);
+                            info!(
+                                "[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'",
+                                pid, worker.name
+                            );
                         }
                     }
                 }
@@ -140,46 +184,66 @@ impl WindowsInstanceManager {
         // Remove from database using ID
         db.delete_worker_by_id(worker.id).await?;
 
-        info!("[INSTALLER] Instance '{}' deleted successfully", worker.name);
+        info!(
+            "[INSTALLER] Instance '{}' deleted successfully",
+            worker.name
+        );
         info!("[INSTALLER] NOTE: Workers will be reloaded automatically");
 
         Ok(())
     }
 
-    pub async fn start_instance(&self, worker: &crate::database::WorkerRecord, force: bool, db: Arc<Database>) -> Result<()> {
-        let wine_prefix = worker.wine_prefix.as_ref()
+    pub async fn start_instance(
+        &self,
+        worker: &crate::database::WorkerRecord,
+        force: bool,
+        db: Arc<Database>,
+    ) -> Result<()> {
+        let wine_prefix = worker
+            .wine_prefix
+            .as_ref()
             .context("Instance does not have a path configured")?;
         let instance_path = PathBuf::from(wine_prefix);
 
         // If force is true, kill any existing MT5 processes for this specific instance
         if force {
             info!("[INSTALLER] Force start requested, killing existing MT5 process for instance '{}'...", worker.name);
-            
+
             #[cfg(target_os = "windows")]
             {
                 // Find and kill only processes running from this instance's directory
                 let exe_path = instance_path.join("terminal64.exe");
                 let exe_path_str = exe_path.to_string_lossy().replace("\\", "\\\\");
-                
+
                 // Query for processes with this specific executable path
                 let output = Command::new("wmic")
-                    .args(&["process", "where", &format!("ExecutablePath='{}'", exe_path_str), "get", "ProcessId"])
+                    .args([
+                        "process",
+                        "where",
+                        &format!("ExecutablePath='{}'", exe_path_str),
+                        "get",
+                        "ProcessId",
+                    ])
                     .output();
-                
+
                 if let Ok(result) = output {
                     let stdout = String::from_utf8_lossy(&result.stdout);
                     // Parse PIDs from output and kill each one
-                    for line in stdout.lines().skip(1) { // Skip header
+                    for line in stdout.lines().skip(1) {
+                        // Skip header
                         if let Ok(pid) = line.trim().parse::<u32>() {
                             let _ = Command::new("taskkill")
-                                .args(&["/F", "/PID", &pid.to_string()])
+                                .args(["/F", "/PID", &pid.to_string()])
                                 .output();
-                            info!("[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'", pid, worker.name);
+                            info!(
+                                "[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'",
+                                pid, worker.name
+                            );
                         }
                     }
                 }
             }
-            
+
             // Give process time to fully terminate
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
@@ -197,34 +261,57 @@ impl WindowsInstanceManager {
         if let Err(e) = super::common::copy_expert_advisors(&instance_path) {
             let error_msg = format!("Failed to copy Expert Advisors: {}", e);
             warn!("[INSTALLER] {}", error_msg);
-            let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Warning, &error_msg).await;
+            let _ = db
+                .insert_worker_error(
+                    &worker.address,
+                    crate::database::ErrorSeverity::Warning,
+                    &error_msg,
+                )
+                .await;
         }
-        
+
         // Copy Default.tpl template with worker port configuration before starting
         if let Err(e) = super::common::copy_default_template(&instance_path, &worker.address) {
             let error_msg = format!("Failed to copy Default.tpl template: {}", e);
             warn!("[INSTALLER] {}", error_msg);
-            let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Warning, &error_msg).await;
+            let _ = db
+                .insert_worker_error(
+                    &worker.address,
+                    crate::database::ErrorSeverity::Warning,
+                    &error_msg,
+                )
+                .await;
         }
 
         #[cfg(target_os = "windows")]
         {
-            let exe_path_str = exe_path.to_str()
+            let exe_path_str = exe_path
+                .to_str()
                 .context("Invalid UTF-8 in executable path")?;
             if let Err(e) = Command::new("cmd")
-                .args(&["/C", "start", "", exe_path_str])
+                .args(["/C", "start", "", exe_path_str])
                 .spawn()
-                .context(format!("Failed to launch instance '{}'", worker.name)) {
+                .context(format!("Failed to launch instance '{}'", worker.name))
+            {
                 let error_msg = format!("Failed to launch MT5: {}", e);
                 error!("[INSTALLER] {}", error_msg);
-                let _ = db.insert_worker_error(&worker.address, crate::database::ErrorSeverity::Critical, &error_msg).await;
+                let _ = db
+                    .insert_worker_error(
+                        &worker.address,
+                        crate::database::ErrorSeverity::Critical,
+                        &error_msg,
+                    )
+                    .await;
                 return Err(e);
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            info!("[INSTALLER] [DRY RUN - not on Windows] Would execute: {:?}", exe_path);
+            info!(
+                "[INSTALLER] [DRY RUN - not on Windows] Would execute: {:?}",
+                exe_path
+            );
         }
 
         info!("[INSTALLER] Instance '{}' started", worker.name);
@@ -232,8 +319,14 @@ impl WindowsInstanceManager {
         Ok(())
     }
 
-    pub async fn stop_instance(&self, worker: &crate::database::WorkerRecord, _db: Arc<Database>) -> Result<()> {
-        let wine_prefix = worker.wine_prefix.as_ref()
+    pub async fn stop_instance(
+        &self,
+        worker: &crate::database::WorkerRecord,
+        _db: Arc<Database>,
+    ) -> Result<()> {
+        let wine_prefix = worker
+            .wine_prefix
+            .as_ref()
             .context("Instance does not have a path configured")?;
         let instance_path = PathBuf::from(wine_prefix);
 
@@ -243,39 +336,61 @@ impl WindowsInstanceManager {
         {
             // Find and kill only processes running from this instance's directory
             let exe_path_str = exe_path.to_string_lossy().replace("\\", "\\\\");
-            
+
             // Query for processes with this specific executable path
             let output = Command::new("wmic")
-                .args(&["process", "where", &format!("ExecutablePath='{}'", exe_path_str), "get", "ProcessId"])
+                .args([
+                    "process",
+                    "where",
+                    &format!("ExecutablePath='{}'", exe_path_str),
+                    "get",
+                    "ProcessId",
+                ])
                 .output();
-            
+
             if let Ok(result) = output {
                 let stdout = String::from_utf8_lossy(&result.stdout);
                 let mut stopped_any = false;
                 // Parse PIDs from output and kill each one
-                for line in stdout.lines().skip(1) { // Skip header
+                for line in stdout.lines().skip(1) {
+                    // Skip header
                     if let Ok(pid) = line.trim().parse::<u32>() {
                         let _ = Command::new("taskkill")
-                            .args(&["/F", "/PID", &pid.to_string()])
+                            .args(["/F", "/PID", &pid.to_string()])
                             .output();
-                        info!("[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'", pid, worker.name);
+                        info!(
+                            "[INSTALLER] Killed MT5 process (PID: {}) for instance '{}'",
+                            pid, worker.name
+                        );
                         stopped_any = true;
                     }
                 }
-                
+
                 if stopped_any {
-                    info!("[INSTALLER] Successfully stopped MT5 process for instance '{}'", worker.name);
+                    info!(
+                        "[INSTALLER] Successfully stopped MT5 process for instance '{}'",
+                        worker.name
+                    );
                 } else {
-                    info!("[INSTALLER] No running MT5 process found for instance '{}'", worker.name);
+                    info!(
+                        "[INSTALLER] No running MT5 process found for instance '{}'",
+                        worker.name
+                    );
                 }
             } else {
-                warn!("[INSTALLER] Failed to query MT5 process for instance '{}'", worker.name);
+                warn!(
+                    "[INSTALLER] Failed to query MT5 process for instance '{}'",
+                    worker.name
+                );
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            info!("[INSTALLER] [DRY RUN - not on Windows] Would kill process for: {:?}", exe_path);
+            info!(
+                "[INSTALLER] [DRY RUN - not on Windows] Would kill process for: {:?}",
+                exe_path
+            );
         }
 
         info!("[INSTALLER] Instance '{}' stopped", worker.name);
@@ -283,16 +398,14 @@ impl WindowsInstanceManager {
         Ok(())
     }
 
-    pub async fn list_instances(&self, db: Arc<Database>) -> Result<Vec<crate::database::WorkerRecord>> {
-        db.get_all_workers().await
-    }
-
     fn generate_instance_path(&self, name: &str) -> Result<PathBuf> {
         #[cfg(target_os = "windows")]
         {
             let local_app_data = std::env::var("LOCALAPPDATA")
                 .context("LOCALAPPDATA environment variable not found")?;
-            Ok(PathBuf::from(local_app_data).join("TradeCopier").join(format!("MT5-{}", name)))
+            Ok(PathBuf::from(local_app_data)
+                .join("TradeCopier")
+                .join(format!("MT5-{}", name)))
         }
 
         #[cfg(not(target_os = "windows"))]

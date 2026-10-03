@@ -375,7 +375,7 @@ sequenceDiagram
     Provider->>Provider: OnInit() → ConnectToRouter()
     Provider->>Router: TCP connect to 127.0.0.1:5000
     Router->>Router: Accept connection
-    Router->>DB: update_provider_status(connected: true)
+    Router->>DB: set_provider_connected(true) (open connections > 0)
     Note over Router: provider_connected = true in system_metrics
 
     loop On each tick (while connected)
@@ -391,14 +391,14 @@ sequenceDiagram
         Provider->>Provider: DisconnectFromRouter()
         Provider->>Router: Attempt TCP reconnect
         alt Success
-            Router->>DB: update_provider_status(connected: true)
+            Router->>DB: set_provider_connected(true)
             Provider->>Provider: g_connection_lost = false
         end
     end
 
     Note over Provider: MT5 disconnects
     Router->>Router: Connection EOF detected
-    Router->>DB: update_provider_status(connected: false)
+    Router->>DB: set_provider_connected(open connections > 0) (guard drop, any exit path)
     Router->>Router: Wait for new connection
 ```
 
@@ -475,7 +475,7 @@ sequenceDiagram
         Metrics->>DB: get_all_workers()
         DB-->>Metrics: Workers list
         Metrics->>Metrics: Count total_workers, active_workers
-        Metrics->>DB: upsert_system_metrics()
+        Metrics->>DB: upsert_system_metrics() (never touches provider_connected)
         Note over DB: Also computes:<br/>• total_trades (MAX id from trades)<br/>• avg_latency_ms (AVG latency_us from workers)
     end
 

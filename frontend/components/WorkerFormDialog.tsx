@@ -65,7 +65,7 @@ const WorkerFormDialog: React.FC<WorkerFormDialogProps> = ({
 
     setSubmitError('');
     setAddressError('');
-  }, [open]);
+  }, [open, mode, worker]);
 
   const validatePort = (port: string): boolean => {
     const portNum = parseInt(port, 10);

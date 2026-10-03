@@ -22,12 +22,12 @@ fn get_os_info() -> (String, Option<String>) {
     {
         ("macOS".to_string(), sys_info::os_release().ok())
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         ("Windows".to_string(), sys_info::os_release().ok())
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         ("Linux".to_string(), sys_info::os_release().ok())
@@ -40,12 +40,12 @@ fn get_package_manager_name() -> &'static str {
     {
         "Homebrew"
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         "Chocolatey"
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         "apt/yum"
@@ -58,12 +58,12 @@ fn is_package_manager_installed() -> bool {
     {
         crate::installer::package_manager::is_homebrew_installed()
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         crate::installer::package_manager::is_chocolatey_installed()
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         true // Most Linux systems have apt or yum pre-installed
@@ -76,12 +76,12 @@ fn is_wine_installed() -> bool {
     {
         crate::installer::package_manager::is_wine_installed()
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         true // Wine not needed on Windows
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         // For Linux, would need similar check as macOS
@@ -90,19 +90,22 @@ fn is_wine_installed() -> bool {
 }
 
 /// Check all dependencies and update database
-pub async fn check_dependencies(db: Arc<Database>, app_handle: Option<&AppHandle>) -> Result<DependencyStatusResponse> {
+pub async fn check_dependencies(
+    db: Arc<Database>,
+    app_handle: Option<&AppHandle>,
+) -> Result<DependencyStatusResponse> {
     let (os_name, os_version) = get_os_info();
     let package_manager_name = get_package_manager_name();
-    
+
     let pm_installed = is_package_manager_installed();
     let wine_installed = is_wine_installed();
-    
+
     let pm_status = if pm_installed {
         DependencyStatus::Installed
     } else {
         DependencyStatus::Pending
     };
-    
+
     let wine_status = if wine_installed {
         DependencyStatus::Installed
     } else if !pm_installed {
@@ -111,7 +114,7 @@ pub async fn check_dependencies(db: Arc<Database>, app_handle: Option<&AppHandle
     } else {
         DependencyStatus::Pending
     };
-    
+
     // Update database
     db.upsert_system_dependencies(
         &os_name,
@@ -120,10 +123,11 @@ pub async fn check_dependencies(db: Arc<Database>, app_handle: Option<&AppHandle
         pm_status,
         wine_status,
         None,
-    ).await?;
-    
+    )
+    .await?;
+
     let all_installed = pm_installed && wine_installed;
-    
+
     let response = DependencyStatusResponse {
         os_name: os_name.clone(),
         os_version: os_version.clone(),
@@ -133,12 +137,12 @@ pub async fn check_dependencies(db: Arc<Database>, app_handle: Option<&AppHandle
         error_message: None,
         all_installed,
     };
-    
+
     // Emit event if app_handle is provided
     if let Some(handle) = app_handle {
         let _ = handle.emit("dependency-status-changed", &response);
     }
-    
+
     Ok(response)
 }
 
@@ -148,10 +152,10 @@ pub async fn get_dependency_status(db: Arc<Database>) -> Result<Option<Dependenc
         Some(record) => {
             let pm_status = DependencyStatus::from_str(&record.package_manager_status);
             let wine_status = DependencyStatus::from_str(&record.wine_status);
-            
-            let all_installed = pm_status == DependencyStatus::Installed 
+
+            let all_installed = pm_status == DependencyStatus::Installed
                 && wine_status == DependencyStatus::Installed;
-            
+
             Ok(Some(DependencyStatusResponse {
                 os_name: record.os_name,
                 os_version: record.os_version,
@@ -167,14 +171,19 @@ pub async fn get_dependency_status(db: Arc<Database>) -> Result<Option<Dependenc
 }
 
 /// Install missing dependencies
-pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> Result<DependencyStatusResponse> {
+pub async fn install_dependencies(
+    db: Arc<Database>,
+    app_handle: &AppHandle,
+) -> Result<DependencyStatusResponse> {
     let (os_name, os_version) = get_os_info();
     let package_manager_name = get_package_manager_name();
-    
+
     // Check current status
     let pm_installed = is_package_manager_installed();
+    // Only consulted where Wine is installed by us (macOS/Linux); on Windows it is always true.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     let wine_installed = is_wine_installed();
-    
+
     // Install package manager if needed
     if !pm_installed {
         // Update status to installing
@@ -185,8 +194,9 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
             DependencyStatus::Installing,
             DependencyStatus::Pending,
             None,
-        ).await?;
-        
+        )
+        .await?;
+
         let status = DependencyStatusResponse {
             os_name: os_name.clone(),
             os_version: os_version.clone(),
@@ -197,7 +207,7 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
             all_installed: false,
         };
         let _ = app_handle.emit("dependency-status-changed", &status);
-        
+
         #[cfg(target_os = "macos")]
         {
             if let Err(e) = crate::installer::package_manager::install_homebrew() {
@@ -209,8 +219,9 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
                     DependencyStatus::Error,
                     DependencyStatus::Pending,
                     Some(&error_msg),
-                ).await?;
-                
+                )
+                .await?;
+
                 return Ok(DependencyStatusResponse {
                     os_name,
                     os_version,
@@ -222,7 +233,7 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
                 });
             }
         }
-        
+
         #[cfg(target_os = "windows")]
         {
             if let Err(e) = crate::installer::package_manager::install_chocolatey() {
@@ -234,8 +245,9 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
                     DependencyStatus::Error,
                     DependencyStatus::Pending,
                     Some(&error_msg),
-                ).await?;
-                
+                )
+                .await?;
+
                 return Ok(DependencyStatusResponse {
                     os_name,
                     os_version,
@@ -247,7 +259,7 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
                 });
             }
         }
-        
+
         // Update to installed
         db.upsert_system_dependencies(
             &os_name,
@@ -256,8 +268,9 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
             DependencyStatus::Installed,
             DependencyStatus::Pending,
             None,
-        ).await?;
-        
+        )
+        .await?;
+
         let status = DependencyStatusResponse {
             os_name: os_name.clone(),
             os_version: os_version.clone(),
@@ -269,7 +282,7 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
         };
         let _ = app_handle.emit("dependency-status-changed", &status);
     }
-    
+
     // Install Wine if needed (only on macOS/Linux)
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     if !wine_installed {
@@ -281,8 +294,9 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
             DependencyStatus::Installed,
             DependencyStatus::Installing,
             None,
-        ).await?;
-        
+        )
+        .await?;
+
         let status = DependencyStatusResponse {
             os_name: os_name.clone(),
             os_version: os_version.clone(),
@@ -293,7 +307,7 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
             all_installed: false,
         };
         let _ = app_handle.emit("dependency-status-changed", &status);
-        
+
         #[cfg(target_os = "macos")]
         {
             if let Err(e) = crate::installer::package_manager::install_wine() {
@@ -305,8 +319,9 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
                     DependencyStatus::Installed,
                     DependencyStatus::Error,
                     Some(&error_msg),
-                ).await?;
-                
+                )
+                .await?;
+
                 return Ok(DependencyStatusResponse {
                     os_name,
                     os_version,
@@ -318,7 +333,7 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
                 });
             }
         }
-        
+
         // Update to installed
         db.upsert_system_dependencies(
             &os_name,
@@ -327,9 +342,10 @@ pub async fn install_dependencies(db: Arc<Database>, app_handle: &AppHandle) -> 
             DependencyStatus::Installed,
             DependencyStatus::Installed,
             None,
-        ).await?;
+        )
+        .await?;
     }
-    
+
     // Final check
     check_dependencies(db, Some(app_handle)).await
 }

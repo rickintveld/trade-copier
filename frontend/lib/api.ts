@@ -130,7 +130,7 @@ export const tradeCopierApi = {
       name: data.name,
       address: data.address,
       multiplier: data.multiplier,
-      symbol_prefix: data.symbol_prefix || '',
+      symbolPrefix: data.symbol_prefix || '',
     });
     return response.data;
   },
@@ -141,7 +141,7 @@ export const tradeCopierApi = {
       name: data.name,
       address: data.address,
       multiplier: data.multiplier,
-      symbol_prefix: data.symbol_prefix || '',
+      symbolPrefix: data.symbol_prefix || '',
     });
   },
 
@@ -150,9 +150,10 @@ export const tradeCopierApi = {
   },
 
   async getProfitHistory(workerId?: number, limit?: number): Promise<ApiProfit[]> {
-    const response = await tauriInvoke<ApiProfit[]>('get_profit_history', { 
-      worker_id: workerId || null, 
-      limit: limit || 1000 
+    // Tauri maps camelCase JS args to snake_case Rust params (workerId -> worker_id)
+    const response = await tauriInvoke<ApiProfit[]>('get_profit_history', {
+      workerId: workerId ?? null,
+      limit: limit ?? 1000,
     });
     return response.data;
   },

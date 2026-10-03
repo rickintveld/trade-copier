@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Worker, Position, ErrorLog, SystemMetrics } from '@/types/trading';
 import { formatUptime } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell } from 'recharts';
 import { CheckCircle2, XCircle, Clock, AlertTriangle } from 'lucide-react';
 import { DependencyStatus } from '@/hooks/useDependencyStatus';
@@ -119,12 +119,6 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ workers, positions,
     inactive: 'hsl(var(--chart-4))',
     error: 'hsl(var(--chart-3))',
     installing: 'hsl(var(--chart-5))',
-  };
-
-  const severityColors: Record<string, string> = {
-    warning: 'hsl(var(--chart-1))',
-    error: 'hsl(var(--chart-2))',
-    critical: 'hsl(var(--chart-3))',
   };
 
   const chartConfig = {

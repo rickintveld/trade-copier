@@ -42,6 +42,27 @@ let listener = TcpListener::bind("127.0.0.1:5000").await?;
 4. **Broadcast**: Each valid trade is broadcast to all workers
 5. **Disconnect**: Connection closes when master MT5 disconnects
 
+### Provider Connection Status
+
+`system_metrics.provider_connected` (shown as "provider connected" in the UI) means
+"at least one master connection is currently open".
+
+- `ProviderStatus` in `router.rs` keeps an in-memory counter of open master
+  connections; it is the source of truth.
+- Each connection handler holds a `ProviderConnectionGuard` that increments the
+  counter on connect and decrements it on drop, so every exit path (clean EOF,
+  read error such as a connection reset or invalid UTF-8, panic) is counted.
+- After every change the counter is written with `Database::set_provider_connected`,
+  a targeted upsert of that one column. Writes are serialised by a mutex and each
+  reads the counter at write time, so the last write always matches the final state.
+- These writes are spawned on both connect and disconnect, never awaited by the
+  connection handler, so the first trade read after a (re)connect does not wait
+  on the DB.
+- The router owns this column. The 30s metrics collector (`upsert_system_metrics`)
+  never writes it.
+- On startup the router writes `false` before binding, which clears a stale `true`
+  left by a crash or by a normal exit (nothing writes it on shutdown).
+
 ### Concurrent Connections
 
 Multiple master terminals can connect simultaneously. Each connection:
